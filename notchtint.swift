@@ -99,7 +99,9 @@ final class Tint: NSObject, NSMenuDelegate {
     var strip: NSWindow?
     var statusItem: NSStatusItem?
     var menuBarH: CGFloat = 24
-    var lastKey = ""                 // window id + size; re-capture only when it changes
+    var lastKey = ""                 // window id + size of the currently applied color
+    var colorCache: [String: NSColor] = [:]   // window+size → sampled color; cleared on theme change
+    var pendingHide = 0              // consecutive failed checks; hide only after 2 (survives Space swipes)
     var shouldShow = false           // frontmost window is fullscreen
     var mouseAtTop = false           // cursor in menu-bar zone → yield to the real menu bar
     var enabled = true
@@ -150,12 +152,12 @@ final class Tint: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated { self?.updateHover() }
         }
         let wsnc = NSWorkspace.shared.notificationCenter
-        wsnc.addObserver(self, selector: #selector(recolorNeeded),
+        wsnc.addObserver(self, selector: #selector(stateChanged),
                          name: NSWorkspace.didActivateApplicationNotification, object: nil)
-        wsnc.addObserver(self, selector: #selector(recolorNeeded),
+        wsnc.addObserver(self, selector: #selector(stateChanged),
                          name: NSWorkspace.activeSpaceDidChangeNotification, object: nil)
         DistributedNotificationCenter.default().addObserver(
-            self, selector: #selector(recolorNeeded),
+            self, selector: #selector(themeChanged),
             name: NSNotification.Name("AppleInterfaceThemeChangedNotification"), object: nil)
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
@@ -163,8 +165,12 @@ final class Tint: NSObject, NSMenuDelegate {
         evaluate()
     }
 
-    @objc func recolorNeeded() {
-        lastKey = ""            // force re-capture on app switch / space change / theme change
+    // app switch / Space change: cached colors apply instantly, no re-capture
+    @objc func stateChanged() { evaluate() }
+
+    @objc func themeChanged() {
+        colorCache.removeAll()   // light/dark switch repaints every app — cached colors are stale
+        lastKey = ""
         evaluate()
     }
 
@@ -221,18 +227,30 @@ final class Tint: NSObject, NSMenuDelegate {
         guard onNotched, fullscreen else { return hide() }
 
         shouldShow = true
+        pendingHide = 0
         updateHover()
         applyVisibility()
         let key = "\(wid)-\(Int(W))x\(Int(H))"
-        guard key != lastKey else { return }     // same window & size — skip capture (no indicator blink)
+        guard key != lastKey else { return }
+        if let cached = colorCache[key] {        // known window — instant, no capture
+            strip?.backgroundColor = cached
+            lastKey = key
+            return
+        }
         lastKey = key
         let fallback = app.icon.map(averageColor) ?? .black
         Task { @MainActor in
-            self.strip?.backgroundColor = await topEdgeColor(pid: pid) ?? fallback
+            let c = await topEdgeColor(pid: pid) ?? fallback
+            self.colorCache[key] = c
+            self.strip?.backgroundColor = c
         }
     }
 
-    func hide() {
+    // Space-swipe animations produce transient "bad" states; require two consecutive
+    // failed checks (~1s) before actually hiding so the strip doesn't blink mid-swipe.
+    func hide(force: Bool = false) {
+        pendingHide += 1
+        guard force || pendingHide >= 2 else { return }
         shouldShow = false
         applyVisibility()
         lastKey = ""
@@ -257,6 +275,10 @@ final class Tint: NSObject, NSMenuDelegate {
             menu.addItem(it)
         }
 
+        let refresh = NSMenuItem(title: "Refresh Color", action: #selector(refreshColor), keyEquivalent: "r")
+        refresh.target = self
+        menu.addItem(refresh)
+
         menu.addItem(.separator())
         let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
         login.target = self
@@ -270,7 +292,13 @@ final class Tint: NSObject, NSMenuDelegate {
 
     @objc func toggleEnabled() {
         enabled.toggle()
-        if enabled { evaluate() } else { hide() }
+        if enabled { evaluate() } else { hide(force: true) }
+    }
+
+    @objc func refreshColor() {
+        colorCache.removeAll()
+        lastKey = ""
+        evaluate()
     }
 
     @objc func toggleExclude(_ sender: NSMenuItem) {
@@ -278,8 +306,7 @@ final class Tint: NSObject, NSMenuDelegate {
         var ex = excluded
         if ex.contains(bid) { ex.remove(bid) } else { ex.insert(bid) }
         excluded = ex
-        lastKey = ""
-        evaluate()
+        if excluded.contains(bid) { hide(force: true) } else { evaluate() }
     }
 
     @objc func toggleLogin() {
