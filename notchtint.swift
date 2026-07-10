@@ -96,7 +96,8 @@ func winArea(_ w: [String: Any]) -> CGFloat { let b = winBounds(w); return (b["W
 @MainActor
 final class Tint: NSObject, NSMenuDelegate {
     var screen: NSScreen
-    var strip: NSWindow?
+    var strips: [NSWindow] = []      // one per visited Space
+    var strip: NSWindow?             // the one on the current Space
     var statusItem: NSStatusItem?
     var menuBarH: CGFloat = 24
     var lastKey = ""                 // window id + size of the currently applied color
@@ -115,26 +116,39 @@ final class Tint: NSObject, NSMenuDelegate {
     init(screen: NSScreen) {
         self.screen = screen
         super.init()
-        buildStrip()
+        menuBarH = max(screen.frame.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, 24)
         buildStatusItem()
     }
 
-    func buildStrip() {
-        strip?.orderOut(nil)
+    // One strip PER Space: each window stays on the Space it was ordered onto and slides
+    // away with it during swipes, keeping its color for when the user swipes back.
+    func makeStrip() -> NSWindow {
         let f = screen.frame
         menuBarH = max(f.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, 24)
         let rect = NSRect(x: f.minX, y: f.maxY - menuBarH, width: f.width, height: menuBarH)
         let w = NSWindow(contentRect: rect, styleMask: .borderless, backing: .buffered, defer: false)
         w.level = NSWindow.Level(Int(CGWindowLevelForKey(.mainMenuWindow)) + 1)
-        // lives on ONE Space and slides away with it during swipes; orderFront() re-attaches it
-        // to the new active Space after the transition (canJoinAllSpaces would stay fixed mid-swipe)
-        w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
+        w.collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]   // joins the Space it's ordered onto and stays there
         w.ignoresMouseEvents = true
         w.hasShadow = false
         w.isOpaque = true
         w.alphaValue = 0
-        w.orderFront(nil)
-        strip = w
+        return w
+    }
+
+    // Strip belonging to the current Space; created on first visit. Extra strips that
+    // migrated here (their Space was closed) get removed.
+    func activeStrip() -> NSWindow {
+        let here = strips.filter { $0.isOnActiveSpace }
+        for extra in here.dropFirst() {
+            extra.orderOut(nil)
+            strips.removeAll { $0 === extra }
+        }
+        if let w = here.first { return w }
+        let w = makeStrip()
+        w.orderFront(nil)          // attaches it to the current Space
+        strips.append(w)
+        return w
     }
 
     func buildStatusItem() {
@@ -177,9 +191,11 @@ final class Tint: NSObject, NSMenuDelegate {
     }
 
     @objc func screensChanged() {
-        // displays added/removed — re-pick the notched screen and rebuild the strip
+        // displays added/removed — re-pick the notched screen, drop all strips (stale geometry)
         screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main ?? screen
-        buildStrip()
+        strips.forEach { $0.orderOut(nil) }
+        strips = []
+        strip = nil
         lastKey = ""
         evaluate()
     }
@@ -230,16 +246,16 @@ final class Tint: NSObject, NSMenuDelegate {
 
         shouldShow = true
         pendingHide = 0
+        strip = activeStrip()
         updateHover()
-        strip?.orderFront(nil)                   // pull the strip onto the current Space
         applyVisibility()
         let key = "\(wid)-\(Int(W))x\(Int(H))"
-        guard key != lastKey else { return }
         if let cached = colorCache[key] {        // known window — instant, no capture
             strip?.backgroundColor = cached
             lastKey = key
             return
         }
+        guard key != lastKey else { return }     // capture already in flight
         lastKey = key
         let fallback = app.icon.map(averageColor) ?? .black
         Task { @MainActor in
