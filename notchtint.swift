@@ -126,7 +126,9 @@ final class Tint: NSObject, NSMenuDelegate {
         let rect = NSRect(x: f.minX, y: f.maxY - menuBarH, width: f.width, height: menuBarH)
         let w = NSWindow(contentRect: rect, styleMask: .borderless, backing: .buffered, defer: false)
         w.level = NSWindow.Level(Int(CGWindowLevelForKey(.mainMenuWindow)) + 1)
-        w.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        // lives on ONE Space and slides away with it during swipes; orderFront() re-attaches it
+        // to the new active Space after the transition (canJoinAllSpaces would stay fixed mid-swipe)
+        w.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .ignoresCycle]
         w.ignoresMouseEvents = true
         w.hasShadow = false
         w.isOpaque = true
@@ -229,6 +231,7 @@ final class Tint: NSObject, NSMenuDelegate {
         shouldShow = true
         pendingHide = 0
         updateHover()
+        strip?.orderFront(nil)                   // pull the strip onto the current Space
         applyVisibility()
         let key = "\(wid)-\(Int(W))x\(Int(H))"
         guard key != lastKey else { return }
