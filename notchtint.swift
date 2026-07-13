@@ -7,6 +7,7 @@
 import Cocoa
 import CoreImage
 import ScreenCaptureKit
+import ServiceManagement
 
 let agentLabel = "com.notchtint.agent"
 var agentPlistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(agentLabel).plist" }
@@ -37,9 +38,10 @@ func averageColor(_ image: NSImage) -> NSColor {
                    blue: CGFloat(px[2]) / 255, alpha: 1)
 }
 
-// Per-channel median of the window's top edge, sampled only in the zones left and
-// right of the notch. Median ignores outliers (traffic lights, toolbar buttons).
-func edgeMedianColor(_ cg: CGImage) -> NSColor? {
+// Per-channel median of the window's top edge, sampled separately in the zones left
+// and right of the notch — sidebar and content often differ, so the strip gets both.
+// Median ignores outliers (traffic lights, toolbar buttons).
+func edgeColors(_ cg: CGImage) -> (left: NSColor, right: NSColor)? {
     let W = 128, H = 3
     let stripH = max(1, min(cg.height, 6))
     guard let strip = cg.cropping(to: CGRect(x: 0, y: 0, width: cg.width, height: stripH)),
@@ -52,24 +54,29 @@ func edgeMedianColor(_ cg: CGImage) -> NSColor? {
     guard let data = ctx.data else { return nil }
     let buf = data.bindMemory(to: UInt8.self, capacity: W * H * 4)
 
-    var rs: [UInt8] = [], gs: [UInt8] = [], bs: [UInt8] = []
+    var L: ([UInt8], [UInt8], [UInt8]) = ([], [], [])
+    var R: ([UInt8], [UInt8], [UInt8]) = ([], [], [])
     for y in 0..<H {
         for x in 0..<W {
             let fx = Double(x) / Double(W)
-            // zones flanking the notch; skip rounded corners and the notch itself
-            guard (fx > 0.06 && fx < 0.36) || (fx > 0.64 && fx < 0.94) else { continue }
             let i = (y * W + x) * 4
-            rs.append(buf[i]); gs.append(buf[i + 1]); bs.append(buf[i + 2])
+            // zones flanking the notch; skip rounded corners and the notch itself
+            if fx > 0.06 && fx < 0.36 {
+                L.0.append(buf[i]); L.1.append(buf[i + 1]); L.2.append(buf[i + 2])
+            } else if fx > 0.64 && fx < 0.94 {
+                R.0.append(buf[i]); R.1.append(buf[i + 1]); R.2.append(buf[i + 2])
+            }
         }
     }
-    guard !rs.isEmpty else { return nil }
+    guard !L.0.isEmpty, !R.0.isEmpty else { return nil }
     func med(_ a: [UInt8]) -> CGFloat { let s = a.sorted(); return CGFloat(s[s.count / 2]) / 255 }
-    return NSColor(red: med(rs), green: med(gs), blue: med(bs), alpha: 1)
+    return (NSColor(red: med(L.0), green: med(L.1), blue: med(L.2), alpha: 1),
+            NSColor(red: med(R.0), green: med(R.1), blue: med(R.2), alpha: 1))
 }
 
 // Capture the app's biggest window (its pixels only — neighbours excluded) and
 // sample the top edge. Requires Screen Recording permission.
-func topEdgeColor(pid: pid_t) async -> NSColor? {
+func topEdgeColors(pid: pid_t) async -> (left: NSColor, right: NSColor)? {
     guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true),
           let win = content.windows
               .filter({ $0.owningApplication?.processID == pid && $0.frame.width > 40 && $0.frame.height > 40 })
@@ -83,7 +90,7 @@ func topEdgeColor(pid: pid_t) async -> NSColor? {
     let filter = SCContentFilter(desktopIndependentWindow: win)
     guard let cg = try? await SCScreenshotManager.captureImage(contentFilter: filter, configuration: cfg)
     else { return nil }
-    return edgeMedianColor(cg)
+    return edgeColors(cg)
 }
 
 // MARK: - Window geometry helpers
@@ -101,7 +108,7 @@ final class Tint: NSObject, NSMenuDelegate {
     var statusItem: NSStatusItem?
     var menuBarH: CGFloat = 24
     var lastKey = ""                 // window id + size of the currently applied color
-    var colorCache: [String: NSColor] = [:]   // window+size → sampled color; cleared on theme change
+    var colorCache: [String: (left: NSColor, right: NSColor)] = [:]   // window+size → edge colors; cleared on theme change
     var pendingHide = 0              // consecutive failed checks; hide only after 2 (survives Space swipes)
     var shouldShow = false           // frontmost window is fullscreen
     var mouseAtTop = false           // cursor in menu-bar zone → yield to the real menu bar
@@ -111,6 +118,18 @@ final class Tint: NSObject, NSMenuDelegate {
     var excluded: Set<String> {
         get { Set(UserDefaults.standard.stringArray(forKey: "excludedBundleIDs") ?? []) }
         set { UserDefaults.standard.set(Array(newValue), forKey: "excludedBundleIDs") }
+    }
+
+    // bundle id → [r,g,b] set manually with the eyedropper; overrides sampling
+    var customColors: [String: [Double]] {
+        get { (UserDefaults.standard.dictionary(forKey: "customColors") as? [String: [Double]]) ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: "customColors") }
+    }
+
+    var isBundled: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+    var loginEnabled: Bool {
+        isBundled ? SMAppService.mainApp.status == .enabled
+                  : FileManager.default.fileExists(atPath: agentPlistPath)
     }
 
     init(screen: NSScreen) {
@@ -133,7 +152,19 @@ final class Tint: NSObject, NSMenuDelegate {
         w.hasShadow = false
         w.isOpaque = true
         w.alphaValue = 0
+        // horizontal gradient: solid at the sides, blend hidden behind the notch in the middle
+        let g = CAGradientLayer()
+        g.startPoint = CGPoint(x: 0, y: 0.5)
+        g.endPoint = CGPoint(x: 1, y: 0.5)
+        g.locations = [0, 0.35, 0.65, 1]
+        w.contentView?.layer = g
+        w.contentView?.wantsLayer = true
         return w
+    }
+
+    func setColors(_ w: NSWindow?, _ c: (left: NSColor, right: NSColor)) {
+        (w?.contentView?.layer as? CAGradientLayer)?.colors =
+            [c.left.cgColor, c.left.cgColor, c.right.cgColor, c.right.cgColor]
     }
 
     // Strip belonging to the current Space; created on first visit. Extra strips that
@@ -253,9 +284,16 @@ final class Tint: NSObject, NSMenuDelegate {
         let (s, isNew) = activeStrip()
         strip = s
         updateHover()
+        if let arr = customColors[app.bundleIdentifier ?? ""], arr.count == 3 {
+            let c = NSColor(red: arr[0], green: arr[1], blue: arr[2], alpha: 1)
+            setColors(s, (c, c))                 // user-picked color overrides sampling
+            lastKey = ""
+            applyVisibility(animated: !isNew)
+            return
+        }
         let key = "\(wid)-\(Int(W))x\(Int(H))"
         if let cached = colorCache[key] {        // known window — instant, no capture
-            s.backgroundColor = cached           // color BEFORE showing: no black flash
+            setColors(s, cached)                 // color BEFORE showing: no black flash
             lastKey = key
             // returning to a known window: appear instantly, as if the strip never left
             applyVisibility(animated: !isNew)
@@ -264,11 +302,11 @@ final class Tint: NSObject, NSMenuDelegate {
         applyVisibility()
         guard key != lastKey else { return }     // capture already in flight
         lastKey = key
-        let fallback = app.icon.map(averageColor) ?? .black
+        let icon = app.icon.map(averageColor) ?? .black
         Task { @MainActor in
-            let c = await topEdgeColor(pid: pid) ?? fallback
+            let c = await topEdgeColors(pid: pid) ?? (icon, icon)
             self.colorCache[key] = c
-            self.strip?.backgroundColor = c
+            self.setColors(self.strip, c)
         }
     }
 
@@ -288,36 +326,71 @@ final class Tint: NSObject, NSMenuDelegate {
 
     // MARK: menu
 
+    func item(_ title: String, _ symbol: String, _ action: Selector?, key: String = "") -> NSMenuItem {
+        let it = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        it.target = self
+        it.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        return it
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let en = NSMenuItem(title: "Enabled", action: #selector(toggleEnabled), keyEquivalent: "")
-        en.target = self
+        let en = item("Enabled", "power", #selector(toggleEnabled))
         en.state = enabled ? .on : .off
         menu.addItem(en)
 
         if let app = lastApp, let bid = app.bundleIdentifier {
+            let name = app.localizedName ?? bid
             let isEx = excluded.contains(bid)
-            let it = NSMenuItem(title: (isEx ? "Include " : "Exclude ") + (app.localizedName ?? bid),
-                                action: #selector(toggleExclude(_:)), keyEquivalent: "")
-            it.target = self
-            it.representedObject = bid
-            menu.addItem(it)
+            let ex = item((isEx ? "Include " : "Exclude ") + name,
+                          isEx ? "eye" : "eye.slash", #selector(toggleExclude(_:)))
+            ex.representedObject = bid
+            menu.addItem(ex)
+
+            let pick = item("Pick Color for \(name)…", "eyedropper", #selector(pickColor(_:)))
+            pick.representedObject = bid
+            menu.addItem(pick)
+
+            if customColors[bid] != nil {
+                let reset = item("Reset Color for \(name)", "eyedropper.halffull", #selector(resetColor(_:)))
+                reset.representedObject = bid
+                menu.addItem(reset)
+            }
         }
 
-        let refresh = NSMenuItem(title: "Refresh Color", action: #selector(refreshColor), keyEquivalent: "r")
-        refresh.target = self
-        menu.addItem(refresh)
+        menu.addItem(item("Refresh Color", "arrow.clockwise", #selector(refreshColor), key: "r"))
 
         menu.addItem(.separator())
-        let login = NSMenuItem(title: "Start at Login", action: #selector(toggleLogin), keyEquivalent: "")
-        login.target = self
-        login.state = FileManager.default.fileExists(atPath: agentPlistPath) ? .on : .off
+        let login = item("Start at Login", "bolt", #selector(toggleLogin))
+        login.state = loginEnabled ? .on : .off
         menu.addItem(login)
 
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "Quit NotchTint",
-                                action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let quit = NSMenuItem(title: "Quit NotchTint",
+                              action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
+        menu.addItem(quit)
+    }
+
+    // NSColorSampler is the system eyedropper: needs no Screen Recording permission,
+    // the user explicitly clicks the pixel they want.
+    @objc func pickColor(_ sender: NSMenuItem) {
+        guard let bid = sender.representedObject as? String else { return }
+        NSColorSampler().show { [weak self] color in
+            guard let self, let c = color?.usingColorSpace(.deviceRGB) else { return }
+            MainActor.assumeIsolated {
+                self.customColors[bid] = [c.redComponent, c.greenComponent, c.blueComponent]
+                self.evaluate()
+            }
+        }
+    }
+
+    @objc func resetColor(_ sender: NSMenuItem) {
+        guard let bid = sender.representedObject as? String else { return }
+        customColors[bid] = nil
+        lastKey = ""
+        evaluate()
     }
 
     @objc func toggleEnabled() {
@@ -340,6 +413,12 @@ final class Tint: NSObject, NSMenuDelegate {
     }
 
     @objc func toggleLogin() {
+        if isBundled {              // modern API; shows up in System Settings → Login Items
+            let svc = SMAppService.mainApp
+            if svc.status == .enabled { try? svc.unregister() } else { try? svc.register() }
+            return
+        }
+        // bare binary fallback: LaunchAgent plist
         let fm = FileManager.default
         if fm.fileExists(atPath: agentPlistPath) {
             run("/bin/launchctl", ["bootout", "gui/\(getuid())/\(agentLabel)"])
@@ -368,10 +447,15 @@ func selfCheck() {
     let ctx = CGContext(data: nil, width: 64, height: 8, bitsPerComponent: 8, bytesPerRow: 64 * 4,
                         space: CGColorSpaceCreateDeviceRGB(),
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    // left half green, right half blue — edgeColors must tell them apart
+    ctx.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+    ctx.fill(CGRect(x: 0, y: 0, width: 32, height: 8))
     ctx.setFillColor(CGColor(red: 0, green: 0, blue: 1, alpha: 1))
-    ctx.fill(CGRect(x: 0, y: 0, width: 64, height: 8))
-    let m = edgeMedianColor(ctx.makeImage()!)!.usingColorSpace(.deviceRGB)!
-    assert(m.blueComponent > 0.7 && m.blueComponent > m.redComponent + 0.4, "edgeMedianColor broken")
+    ctx.fill(CGRect(x: 32, y: 0, width: 32, height: 8))
+    let e = edgeColors(ctx.makeImage()!)!
+    let l = e.left.usingColorSpace(.deviceRGB)!, r = e.right.usingColorSpace(.deviceRGB)!
+    assert(l.greenComponent > 0.7 && l.blueComponent < 0.3, "edgeColors left broken")
+    assert(r.blueComponent > 0.7 && r.greenComponent < 0.3, "edgeColors right broken")
 }
 
 selfCheck()
