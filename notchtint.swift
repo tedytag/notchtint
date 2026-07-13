@@ -137,18 +137,18 @@ final class Tint: NSObject, NSMenuDelegate {
     }
 
     // Strip belonging to the current Space; created on first visit. Extra strips that
-    // migrated here (their Space was closed) get removed.
-    func activeStrip() -> NSWindow {
+    // migrated here (their Space was closed) get removed. Returns whether it's freshly made.
+    func activeStrip() -> (NSWindow, isNew: Bool) {
         let here = strips.filter { $0.isOnActiveSpace }
         for extra in here.dropFirst() {
             extra.orderOut(nil)
             strips.removeAll { $0 === extra }
         }
-        if let w = here.first { return w }
+        if let w = here.first { return (w, false) }
         let w = makeStrip()
         w.orderFront(nil)          // attaches it to the current Space
         strips.append(w)
-        return w
+        return (w, true)
     }
 
     func buildStatusItem() {
@@ -206,12 +206,13 @@ final class Tint: NSObject, NSMenuDelegate {
         if atTop != mouseAtTop { mouseAtTop = atTop; applyVisibility() }
     }
 
-    func applyVisibility() {
+    func applyVisibility(animated: Bool = true) {
         // only touch the strip whose Space is active — strips resting on other Spaces
         // keep their alpha and color, so returning to them shows no re-appear animation
         guard let strip, strip.isOnActiveSpace else { return }
         let target: CGFloat = (enabled && shouldShow && !mouseAtTop) ? 1 : 0
         guard strip.alphaValue != target else { return }
+        guard animated else { strip.alphaValue = target; return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.15
             strip.animator().alphaValue = target
@@ -249,15 +250,18 @@ final class Tint: NSObject, NSMenuDelegate {
 
         shouldShow = true
         pendingHide = 0
-        strip = activeStrip()
+        let (s, isNew) = activeStrip()
+        strip = s
         updateHover()
-        applyVisibility()
         let key = "\(wid)-\(Int(W))x\(Int(H))"
         if let cached = colorCache[key] {        // known window — instant, no capture
-            strip?.backgroundColor = cached
+            s.backgroundColor = cached           // color BEFORE showing: no black flash
             lastKey = key
+            // returning to a known window: appear instantly, as if the strip never left
+            applyVisibility(animated: !isNew)
             return
         }
+        applyVisibility()
         guard key != lastKey else { return }     // capture already in flight
         lastKey = key
         let fallback = app.icon.map(averageColor) ?? .black
