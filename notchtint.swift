@@ -162,7 +162,7 @@ final class Tint: NSObject, NSMenuDelegate {
 
     func start() {
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate() }
+            MainActor.assumeIsolated { self?.evaluate(fromTimer: true) }
         }
         NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateHover() }
@@ -207,7 +207,9 @@ final class Tint: NSObject, NSMenuDelegate {
     }
 
     func applyVisibility() {
-        guard let strip else { return }
+        // only touch the strip whose Space is active — strips resting on other Spaces
+        // keep their alpha and color, so returning to them shows no re-appear animation
+        guard let strip, strip.isOnActiveSpace else { return }
         let target: CGFloat = (enabled && shouldShow && !mouseAtTop) ? 1 : 0
         guard strip.alphaValue != target else { return }
         NSAnimationContext.runAnimationGroup { ctx in
@@ -216,7 +218,7 @@ final class Tint: NSObject, NSMenuDelegate {
         }
     }
 
-    func evaluate() {
+    func evaluate(fromTimer: Bool = false) {
         let f = screen.frame
         guard enabled,
               let app = NSWorkspace.shared.frontmostApplication,
@@ -224,7 +226,7 @@ final class Tint: NSObject, NSMenuDelegate {
               !excluded.contains(app.bundleIdentifier ?? ""),
               let infos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],
                                                      kCGNullWindowID) as? [[String: Any]]
-        else { return hide() }
+        else { return hide(counted: fromTimer) }
         lastApp = app
         let pid = app.processIdentifier
         let layer0 = infos.filter {
@@ -236,13 +238,14 @@ final class Tint: NSObject, NSMenuDelegate {
               let win = layer0.filter({ ($0[kCGWindowOwnerPID as String] as? pid_t) == pid })
                               .max(by: { winArea($0) < winArea($1) }),
               let wid = win[kCGWindowNumber as String] as? CGWindowID
-        else { return hide() }
+        else { return hide(counted: fromTimer) }
         let b = winBounds(win)
-        guard let W = b["Width"], let H = b["Height"], let X = b["X"], let Y = b["Y"] else { return hide() }
+        guard let W = b["Width"], let H = b["Height"], let X = b["X"], let Y = b["Y"]
+        else { return hide(counted: fromTimer) }
 
         let onNotched = (X + W / 2) > f.minX && (X + W / 2) < f.maxX
         let fullscreen = W >= f.width * 0.98 && Y <= menuBarH + 4 && H >= f.height * 0.8
-        guard onNotched, fullscreen else { return hide() }
+        guard onNotched, fullscreen else { return hide(counted: fromTimer) }
 
         shouldShow = true
         pendingHide = 0
@@ -265,11 +268,15 @@ final class Tint: NSObject, NSMenuDelegate {
         }
     }
 
-    // Space-swipe animations produce transient "bad" states; require two consecutive
-    // failed checks (~1s) before actually hiding so the strip doesn't blink mid-swipe.
-    func hide(force: Bool = false) {
-        pendingHide += 1
-        guard force || pendingHide >= 2 else { return }
+    // Space-swipe animations produce transient "bad" states. Only timer ticks count
+    // toward hiding (notification bursts during transitions don't), and two consecutive
+    // failed ticks (~1s) are required — so a strip never fades mid-swipe.
+    func hide(force: Bool = false, counted: Bool = true) {
+        if !force {
+            guard counted else { return }
+            pendingHide += 1
+            guard pendingHide >= 2 else { return }
+        }
         shouldShow = false
         applyVisibility()
         lastKey = ""
