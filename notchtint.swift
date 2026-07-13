@@ -333,12 +333,41 @@ final class Tint: NSObject, NSMenuDelegate {
         return it
     }
 
+    // Menu row with a real NSSwitch (Control Center style). Clicking it doesn't close
+    // the menu, so both toggles can be flipped in one visit.
+    func switchItem(_ title: String, _ symbol: String, isOn: Bool, _ action: Selector) -> NSMenuItem {
+        let v = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
+        v.autoresizingMask = [.width]
+
+        let icon = NSImageView(frame: NSRect(x: 14, y: 7, width: 16, height: 16))
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        icon.contentTintColor = .labelColor
+        v.addSubview(icon)
+
+        let label = NSTextField(labelWithString: title)
+        label.frame = NSRect(x: 38, y: 6, width: 140, height: 18)
+        v.addSubview(label)
+
+        let sw = NSSwitch()
+        sw.controlSize = .mini
+        sw.sizeToFit()
+        sw.state = isOn ? .on : .off
+        sw.target = self
+        sw.action = action
+        sw.setFrameOrigin(NSPoint(x: v.frame.width - sw.frame.width - 14,
+                                  y: (v.frame.height - sw.frame.height) / 2))
+        sw.autoresizingMask = [.minXMargin]
+        v.addSubview(sw)
+
+        let it = NSMenuItem()
+        it.view = v
+        return it
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
 
-        let en = item("Enabled", "power", #selector(toggleEnabled))
-        en.state = enabled ? .on : .off
-        menu.addItem(en)
+        menu.addItem(switchItem("Enabled", "power", isOn: enabled, #selector(toggleEnabled)))
 
         if let app = lastApp, let bid = app.bundleIdentifier {
             let name = app.localizedName ?? bid
@@ -362,9 +391,7 @@ final class Tint: NSObject, NSMenuDelegate {
         menu.addItem(item("Refresh Color", "arrow.clockwise", #selector(refreshColor), key: "r"))
 
         menu.addItem(.separator())
-        let login = item("Start at Login", "bolt", #selector(toggleLogin))
-        login.state = loginEnabled ? .on : .off
-        menu.addItem(login)
+        menu.addItem(switchItem("Start at Login", "bolt", isOn: loginEnabled, #selector(toggleLogin)))
 
         menu.addItem(.separator())
         let quit = NSMenuItem(title: "Quit NotchTint",
