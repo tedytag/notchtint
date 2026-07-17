@@ -15,6 +15,7 @@ app: build
 	cp notchtint $(APP)/Contents/MacOS/
 	cp Info.plist $(APP)/Contents/
 	@if [ -f AppIcon.icns ]; then cp AppIcon.icns $(APP)/Contents/Resources/; fi
+	@if [ -f menubar.pdf ]; then cp menubar.pdf $(APP)/Contents/Resources/; fi
 	codesign -f -s - --identifier com.notchtint.app $(APP)
 
 # Turn a 1024x1024 icon.png into AppIcon.icns (then re-run `make app`)
