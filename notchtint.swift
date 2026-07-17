@@ -184,7 +184,15 @@ final class Tint: NSObject, NSMenuDelegate {
 
     func buildStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        item.button?.image = NSImage(systemSymbolName: "paintbrush.fill", accessibilityDescription: "NotchTint")
+        // custom template icon from the bundle; SF Symbol fallback for the bare binary
+        if let path = Bundle.main.path(forResource: "menubar", ofType: "pdf"),
+           let img = NSImage(contentsOfFile: path) {
+            img.isTemplate = true
+            img.size = NSSize(width: 18, height: 18)
+            item.button?.image = img
+        } else {
+            item.button?.image = NSImage(systemSymbolName: "paintbrush.fill", accessibilityDescription: "NotchTint")
+        }
         let menu = NSMenu()
         menu.delegate = self
         item.menu = menu
