@@ -1,8 +1,12 @@
 APP = NotchTint.app
+# Stable identity keeps the Screen Recording permission across rebuilds.
+# Create once: Keychain self-signed code-signing cert named "NotchTint Signing"
+# (falls back to ad-hoc "-" if absent).
+SIGN := $(shell security find-identity -p codesigning -v 2>/dev/null | grep -q "NotchTint Signing" && echo "NotchTint Signing" || echo "-")
 
 build:
 	swiftc -O notchtint.swift -o notchtint
-	codesign -f -s - --identifier com.notchtint notchtint
+	codesign -f -s "$(SIGN)" --identifier com.notchtint notchtint
 
 run: build
 	./notchtint
@@ -16,7 +20,7 @@ app: build
 	cp Info.plist $(APP)/Contents/
 	@if [ -f AppIcon.icns ]; then cp AppIcon.icns $(APP)/Contents/Resources/; fi
 	@if [ -f menubar.pdf ]; then cp menubar.pdf $(APP)/Contents/Resources/; fi
-	codesign -f -s - --identifier com.notchtint.app $(APP)
+	codesign -f -s "$(SIGN)" --identifier com.notchtint.app $(APP)
 
 # Turn a 1024x1024 icon.png into AppIcon.icns (then re-run `make app`)
 icon:
