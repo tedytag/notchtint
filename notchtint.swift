@@ -143,7 +143,9 @@ final class Tint: NSObject, NSMenuDelegate {
     // away with it during swipes, keeping its color for when the user swipes back.
     func makeStrip() -> NSWindow {
         let f = screen.frame
-        menuBarH = max(f.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, 24)
+        // monotonic: inside a fullscreen Space visibleFrame has no menu bar and the
+        // fallback is 1px short — never shrink a height we've already seen correctly
+        menuBarH = max(f.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, menuBarH)
         let rect = NSRect(x: f.minX, y: f.maxY - menuBarH, width: f.width, height: menuBarH)
         let w = NSWindow(contentRect: rect, styleMask: .borderless, backing: .buffered, defer: false)
         w.level = NSWindow.Level(Int(CGWindowLevelForKey(.mainMenuWindow)) + 1)
@@ -235,6 +237,7 @@ final class Tint: NSObject, NSMenuDelegate {
         strips.forEach { $0.orderOut(nil) }
         strips = []
         strip = nil
+        menuBarH = 24            // new display geometry — let makeStrip re-measure from scratch
         lastKey = ""
         evaluate()
     }
@@ -309,6 +312,7 @@ final class Tint: NSObject, NSMenuDelegate {
         }
         applyVisibility()
         guard key != lastKey else { return }     // capture already in flight
+        if colorCache.count > 200 { colorCache.removeAll() }   // window resizes mint new keys forever
         lastKey = key
         let icon = app.icon.map(averageColor) ?? .black
         Task { @MainActor in
@@ -329,6 +333,9 @@ final class Tint: NSObject, NSMenuDelegate {
         }
         shouldShow = false
         applyVisibility()
+        if force {   // disable/exclude must also clear strips resting on other Spaces
+            strips.forEach { $0.alphaValue = 0 }
+        }
         lastKey = ""
     }
 

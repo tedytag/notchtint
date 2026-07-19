@@ -10,7 +10,7 @@
 		</data>
 		<key>.git/COMMIT_EDITMSG</key>
 		<data>
-		LEAbxcFqFcBMTwyygGe86M1m4LE=
+		mF9UchmmANM3eNNJqWNmgMSEoSc=
 		</data>
 		<key>.git/HEAD</key>
 		<data>
@@ -86,7 +86,7 @@
 		</data>
 		<key>.git/index</key>
 		<data>
-		64UvBoRHJynzoHrp1JXcFWE8TUE=
+		QgeJI1O6gaFndKLhWeFTSfrWe8c=
 		</data>
 		<key>.git/info/exclude</key>
 		<data>
@@ -94,11 +94,11 @@
 		</data>
 		<key>.git/logs/HEAD</key>
 		<data>
-		m5tHam23qSUBev2OcEJAzVtRmDU=
+		EBxALNrs7x0WuvAyZ0A858o5gvA=
 		</data>
 		<key>.git/logs/refs/heads/main</key>
 		<data>
-		m5tHam23qSUBev2OcEJAzVtRmDU=
+		EBxALNrs7x0WuvAyZ0A858o5gvA=
 		</data>
 		<key>.git/objects/03/152ab7bfb9668e5c87f453b97b5d5811fa3aca</key>
 		<data>
@@ -115,6 +115,10 @@
 		<key>.git/objects/21/0675298ca2e9282af23c2911da92106d1d3ac9</key>
 		<data>
 		w2eUB9s7SbmeJjdaMt8GyDgpZ5E=
+		</data>
+		<key>.git/objects/22/c46b8c6b1052128f9655bb5147a728d06b3c28</key>
+		<data>
+		crlhmpTudsMHlxWNRBNTIrHbATU=
 		</data>
 		<key>.git/objects/23/777aaf315f224265fe1358589ef30f0e1ca83b</key>
 		<data>
@@ -140,13 +144,33 @@
 		<data>
 		dcv0d+0/1llQ7dAzWxRh/Zg2X3o=
 		</data>
+		<key>.git/objects/3b/6fcf3b3ba61144692515966f853a91305e189a</key>
+		<data>
+		BZ6MyooveiNSn8xYvxvQVODrCQg=
+		</data>
 		<key>.git/objects/3e/8dd1fdd73290c1463e80ee99462ada11259a61</key>
 		<data>
 		31fBvlNF3v1REMGdEfcaOF0quiU=
 		</data>
+		<key>.git/objects/44/9f39c6f15ccc414f3f294d1d37002e432afd8d</key>
+		<data>
+		MjuQr0ERlOZmjp7KmXI2PDX+z9g=
+		</data>
 		<key>.git/objects/45/791eaa263177b34c5d4b1087a751650be17405</key>
 		<data>
 		9LJIAMOlwX1ZOrasA2pzxcynruw=
+		</data>
+		<key>.git/objects/48/6330247f7d2bb17e73a2d9c4f11c8031c4fb16</key>
+		<data>
+		MdnSY90MYN9o47iNiE2WHtkV57Y=
+		</data>
+		<key>.git/objects/4e/6c611ef2eb5807ad5130bb6143030abc3b89e8</key>
+		<data>
+		QfTDiwsWX5K8rAIfY6kU2SxveHg=
+		</data>
+		<key>.git/objects/50/415b06631d3c6eede92f06da7f7c8f90757764</key>
+		<data>
+		b/5tuS/8Q/Af7tfnb3HAbWKAqDg=
 		</data>
 		<key>.git/objects/56/1b781e6920af756c751dc60c91365ee2fca4b4</key>
 		<data>
@@ -188,6 +212,14 @@
 		<data>
 		Ux/AtJDHoeauMpB3LPsUsGEr4ss=
 		</data>
+		<key>.git/objects/69/07a876ac935e4bf9c74c87722e8f4866b768a9</key>
+		<data>
+		ntLLUw5rVqEpanr9C2FsRZ6Wl6w=
+		</data>
+		<key>.git/objects/69/843e4ec31f0d42e9b1bb818339d4214b529d7b</key>
+		<data>
+		hv7VOGjrXyMwivKJonklvnP7h5M=
+		</data>
 		<key>.git/objects/6d/88cb9b8927909e2f208ed59675fec151d2fe6a</key>
 		<data>
 		B3qteOC4358MtvMRNkiinAxLiJI=
@@ -208,6 +240,10 @@
 		<data>
 		7aFF0DFNxavtks2mZ7tzmknpfDk=
 		</data>
+		<key>.git/objects/78/af4da664be303b0f4a67d2bc8f8fdc15d8e49d</key>
+		<data>
+		5rWBXjbkwPwnsvhPCv4Of9pLjXo=
+		</data>
 		<key>.git/objects/7b/d41c4bea5298ee890ee722373c7567f0912b9b</key>
 		<data>
 		0aN429eL/6CnPZ4nMzwE+kjlC4o=
@@ -219,6 +255,10 @@
 		<key>.git/objects/80/336bb178b0318cc9cb632036ce41c7b90a5c75</key>
 		<data>
 		jXPHmhfC1W04ZHC8Hs+7eJ3gI6M=
+		</data>
+		<key>.git/objects/96/2fa16409bca65bfc88972be5d718d82b26d0bf</key>
+		<data>
+		jv0kML7/WHv7buawc4K3yCplOgA=
 		</data>
 		<key>.git/objects/96/ae98146252d1d3db28512e30f4bdc4c4a48e09</key>
 		<data>
@@ -248,6 +288,18 @@
 		<data>
 		mHjeeYpwAhneJAcG07JHJ/FH12k=
 		</data>
+		<key>.git/objects/b5/aa26bf436f43f1268da54b84a196840db4e403</key>
+		<data>
+		3DG8sXR0wDzDyqk7l9cUlxAoGBA=
+		</data>
+		<key>.git/objects/c2/4a106f0bbb13998a35964bdea5ae8b557e333d</key>
+		<data>
+		+TTTqr0uYsxBGnvjtqQ3ussRoQ8=
+		</data>
+		<key>.git/objects/c6/50b06436197d3a837274e810b20b448d3c6f3b</key>
+		<data>
+		Z0QZMFfv7wJL7t3Aikh96eIA+eM=
+		</data>
 		<key>.git/objects/c7/de5e11ee80085dc9157df1ca80b42cb8ac3a0b</key>
 		<data>
 		YMbQsxd4c2BFydILIzdnZbDN2VY=
@@ -255,6 +307,10 @@
 		<key>.git/objects/ce/8818bb36bc1e681bac92c66238405bb63e9404</key>
 		<data>
 		LmaFyJP3PXPLiyCnF65GRe0M26Y=
+		</data>
+		<key>.git/objects/d0/25b5e3cec851276a348fdfdd330984b89729e3</key>
+		<data>
+		CzHgyLvbuokc/ZE05qA0UIHJbcc=
 		</data>
 		<key>.git/objects/d5/d0fd744123ce3cb54eeee80d01fca7838a081b</key>
 		<data>
@@ -300,13 +356,17 @@
 		<data>
 		U5xQ/+vrJY97GiktuOO4ySUOh3g=
 		</data>
+		<key>.git/objects/fb/a21688ed2b61c0d904984baf09b3490b406929</key>
+		<data>
+		axT+1k+tF/7TDA3og9cQHR1/2aU=
+		</data>
 		<key>.git/objects/ff/3055f25a90210f6a3b8589d103d8240f03e2e2</key>
 		<data>
 		OMQq6+L2rFr630wO6UGo1d2Q/eY=
 		</data>
 		<key>.git/refs/heads/main</key>
 		<data>
-		6TmoY8m7xHBkM5VXmi8Ot3FLmmA=
+		fyhzy5w+yZtqKLeJgYT79JQ56iE=
 		</data>
 		<key>.gitignore</key>
 		<data>
@@ -338,11 +398,19 @@
 		</data>
 		<key>NotchTint.app/Contents/MacOS/notchtint</key>
 		<data>
-		stHAnM7LEQ7YsjHm/55SKV24Ccs=
+		X1oL3EHcrkZWYTIgiGVQo+kYI/0=
+		</data>
+		<key>NotchTint.app/Contents/Resources/AppIcon.icns</key>
+		<data>
+		06NT46aPmDAFM40qmQuR8ETNhq4=
+		</data>
+		<key>NotchTint.app/Contents/Resources/menubar.pdf</key>
+		<data>
+		IL64k5gYKb4vw+xRmG3VXbbkop0=
 		</data>
 		<key>NotchTint.app/Contents/_CodeSignature/CodeResources</key>
 		<data>
-		YwoIhzByBpYWzcwx9V5tdCMIbXg=
+		tdOmrfR9EcEdcGhjyfP/zWkvr1Q=
 		</data>
 		<key>README.md</key>
 		<data>
@@ -362,7 +430,7 @@
 		</data>
 		<key>notchtint.swift</key>
 		<data>
-		2YBzKJTzuyNrcJiTiwvlc3Owar0=
+		DEOg33N66kUOWutslSDVXDUyYn0=
 		</data>
 	</dict>
 	<key>files2</key>
@@ -371,7 +439,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			joL3/S4q627iQA+NnD7+ICWx0GfiLKlFf4OwQfmll1U=
+			ns/rTSyAOnwpQQ7wDbormpvb2JU4nWFb8OPIZZrzu3U=
 			</data>
 		</dict>
 		<key>.git/HEAD</key>
@@ -504,7 +572,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			8K6boGAvww4EhXHJxVfR3QLoqB01K/HIYihKIovv9U4=
+			Jd0ctWcM8h825I5aghafhQ6n0DsECFsDgQ9zVVbPxj8=
 			</data>
 		</dict>
 		<key>.git/info/exclude</key>
@@ -518,14 +586,14 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			75SGrEeCOwm/ODsBVkr/7DskX/7n0oIXLuAr20huOZk=
+			HJJ7MQg0eap21aqTYTDISMF0Vcu8ZB+EhaHlXqA0j4Y=
 			</data>
 		</dict>
 		<key>.git/logs/refs/heads/main</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			75SGrEeCOwm/ODsBVkr/7DskX/7n0oIXLuAr20huOZk=
+			HJJ7MQg0eap21aqTYTDISMF0Vcu8ZB+EhaHlXqA0j4Y=
 			</data>
 		</dict>
 		<key>.git/objects/03/152ab7bfb9668e5c87f453b97b5d5811fa3aca</key>
@@ -554,6 +622,13 @@
 			<key>hash2</key>
 			<data>
 			vsOJKqUsafuqqyE7gFta8znZHfTOQzfJ+GcH6YihDBc=
+			</data>
+		</dict>
+		<key>.git/objects/22/c46b8c6b1052128f9655bb5147a728d06b3c28</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Tm2GSAE2FoE7rO6DG2Vs4Hw1H1RzmTO5gi7YQfFisAY=
 			</data>
 		</dict>
 		<key>.git/objects/23/777aaf315f224265fe1358589ef30f0e1ca83b</key>
@@ -598,6 +673,13 @@
 			RA1XVbDisXpVL3J3rVd+gqWIyyi8Zaa64mZyd8gRCwM=
 			</data>
 		</dict>
+		<key>.git/objects/3b/6fcf3b3ba61144692515966f853a91305e189a</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			JhNjfYJzP5Y73q9JQhkLq5cPMK8v6tVidKDs4bmFpIg=
+			</data>
+		</dict>
 		<key>.git/objects/3e/8dd1fdd73290c1463e80ee99462ada11259a61</key>
 		<dict>
 			<key>hash2</key>
@@ -605,11 +687,39 @@
 			cX37SY/9zVP5bwxdRuc/ZE0aw+GzOC/DkkXrSPJm4as=
 			</data>
 		</dict>
+		<key>.git/objects/44/9f39c6f15ccc414f3f294d1d37002e432afd8d</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			t1YSGb7681Q6lwxJ6yb14okvpe6u0GSQ8hQf6Cp0tVg=
+			</data>
+		</dict>
 		<key>.git/objects/45/791eaa263177b34c5d4b1087a751650be17405</key>
 		<dict>
 			<key>hash2</key>
 			<data>
 			lfhzwQK7cTwazQ91bBWoxqDtmMLOqOzsV8PjpErtAE0=
+			</data>
+		</dict>
+		<key>.git/objects/48/6330247f7d2bb17e73a2d9c4f11c8031c4fb16</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			PWCUPOgffFHZrkoeYBqclkgaW5OQCGXhvt/DSQIWOhs=
+			</data>
+		</dict>
+		<key>.git/objects/4e/6c611ef2eb5807ad5130bb6143030abc3b89e8</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			F7WYNv0dnMDuFeG8UMrHqt6F13lBJ03cBDcRaAp8Mfs=
+			</data>
+		</dict>
+		<key>.git/objects/50/415b06631d3c6eede92f06da7f7c8f90757764</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ks8FqynGY5HCNs5AlrsQfgUFgyg0t4iwmbq6a2tlBOM=
 			</data>
 		</dict>
 		<key>.git/objects/56/1b781e6920af756c751dc60c91365ee2fca4b4</key>
@@ -682,6 +792,20 @@
 			xc2QlhmhzrjrOUsm3B0QeR0uEj1+h0UoKxIJsvGFZ6Q=
 			</data>
 		</dict>
+		<key>.git/objects/69/07a876ac935e4bf9c74c87722e8f4866b768a9</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			Wgydc60LqcGRhD2Ypohvqg6QjYFuyVj7vxI/MktHTyQ=
+			</data>
+		</dict>
+		<key>.git/objects/69/843e4ec31f0d42e9b1bb818339d4214b529d7b</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			u7lnEWXXMuNpiDSApVX7c8SxRzA+Of/Td7O5sVNBntM=
+			</data>
+		</dict>
 		<key>.git/objects/6d/88cb9b8927909e2f208ed59675fec151d2fe6a</key>
 		<dict>
 			<key>hash2</key>
@@ -717,6 +841,13 @@
 			PzuVYmpBJeBZ/cZjVbKSbli6KOrxYAF5EYFtsUydTJU=
 			</data>
 		</dict>
+		<key>.git/objects/78/af4da664be303b0f4a67d2bc8f8fdc15d8e49d</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			sLSxqWr8lQZLDGd5a+glDi+0l1uAb2Mf3d20lB6XDKA=
+			</data>
+		</dict>
 		<key>.git/objects/7b/d41c4bea5298ee890ee722373c7567f0912b9b</key>
 		<dict>
 			<key>hash2</key>
@@ -736,6 +867,13 @@
 			<key>hash2</key>
 			<data>
 			q38J6BCjLF81zgDXlpe0MrrUQi2VzSHTmjZCCsS2/Uk=
+			</data>
+		</dict>
+		<key>.git/objects/96/2fa16409bca65bfc88972be5d718d82b26d0bf</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			d74f0F2bXTjx3YxCl1TXmbGj60NDkWFMzDmCYx/RRLw=
 			</data>
 		</dict>
 		<key>.git/objects/96/ae98146252d1d3db28512e30f4bdc4c4a48e09</key>
@@ -787,6 +925,27 @@
 			0ex0yhfAi1RhVPyLISsrT/csExI2Uf9jDjt5q9lQrJ4=
 			</data>
 		</dict>
+		<key>.git/objects/b5/aa26bf436f43f1268da54b84a196840db4e403</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			89OMrHW1BE6U73kHHv3U6t2qo9wpSSoA7qvY0QaTM+Q=
+			</data>
+		</dict>
+		<key>.git/objects/c2/4a106f0bbb13998a35964bdea5ae8b557e333d</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			dn+zOD+l7aixyJm8OfaJcdhAAUE2OQJT8KfHjiyX/qg=
+			</data>
+		</dict>
+		<key>.git/objects/c6/50b06436197d3a837274e810b20b448d3c6f3b</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			wk1MrErlRq4DwBIiuPLiuGqvdpRp5OTh84HbQM9Z728=
+			</data>
+		</dict>
 		<key>.git/objects/c7/de5e11ee80085dc9157df1ca80b42cb8ac3a0b</key>
 		<dict>
 			<key>hash2</key>
@@ -799,6 +958,13 @@
 			<key>hash2</key>
 			<data>
 			iqA9SMd64R7x2awgLSn2kJwMMTyrBKGLZ0KwqkWqxU0=
+			</data>
+		</dict>
+		<key>.git/objects/d0/25b5e3cec851276a348fdfdd330984b89729e3</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			xl38+d3XjQaSMUKzoa5njKgrmq2AmUOV0+I+wV6SWAk=
 			</data>
 		</dict>
 		<key>.git/objects/d5/d0fd744123ce3cb54eeee80d01fca7838a081b</key>
@@ -878,6 +1044,13 @@
 			/I3EsMqdDaYJp6jMihc+jwTjRvZBgKapPydtQxo0g7U=
 			</data>
 		</dict>
+		<key>.git/objects/fb/a21688ed2b61c0d904984baf09b3490b406929</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			dAINez13WzMtLIl1aBn4eKcRRPXaNZFbqN+NbMfl4z4=
+			</data>
+		</dict>
 		<key>.git/objects/ff/3055f25a90210f6a3b8589d103d8240f03e2e2</key>
 		<dict>
 			<key>hash2</key>
@@ -889,7 +1062,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			Tz637YIB1eXiD0w7kTiPrXJL7vaPwYXUZfaGOAmeRpQ=
+			tKbW5kS3k7vcjDPxJKPGT0Sw002nKi1z6H/AkcfSJIk=
 			</data>
 		</dict>
 		<key>.gitignore</key>
@@ -938,14 +1111,28 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			IjdSp0MoLp52Yj7n19TPo8Y2fBNuhJEQTdQpFCpLRxQ=
+			FTAatuL5dmDkjezY7KtbsmHg1+I57Gq+nZXSDtC19CQ=
+			</data>
+		</dict>
+		<key>NotchTint.app/Contents/Resources/AppIcon.icns</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			pZ6LUv1wZzmdGgEfLHal2yHNiCOXn37fOtIS+xAGLyU=
+			</data>
+		</dict>
+		<key>NotchTint.app/Contents/Resources/menubar.pdf</key>
+		<dict>
+			<key>hash2</key>
+			<data>
+			ZCjEWYGvXkpozkqALwJn09myI63I1hIMqNUZ5oSCvUU=
 			</data>
 		</dict>
 		<key>NotchTint.app/Contents/_CodeSignature/CodeResources</key>
 		<dict>
 			<key>hash2</key>
 			<data>
-			ZobeEKKKL+EbNsu4bcusyCfPxOoRa02r8YReWu5inps=
+			/0jpAujQynjJej5lxUMEqxYB3+sbGTnUV4Hx6lydsTo=
 			</data>
 		</dict>
 		<key>README.md</key>
@@ -980,7 +1167,7 @@
 		<dict>
 			<key>hash2</key>
 			<data>
-			E2vUpSP9pZiSz28+w59GO54gts5MeoBlHoAUviBXifc=
+			7/b8rmxZ8xMawiE/OZWvlRwlG2l7fxxzRZY/HBD3gxc=
 			</data>
 		</dict>
 	</dict>
