@@ -26,7 +26,7 @@ exact colors of the app's top edge — no more black void framing the camera.
 ## Install
 
 ```sh
-git clone https://github.com/YOURNAME/notchtint.git
+git clone https://github.com/tedytag/notchtint.git
 cd notchtint
 make app
 open NotchTint.app
