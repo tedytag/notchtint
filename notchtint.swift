@@ -112,6 +112,7 @@ final class Tint: NSObject, NSMenuDelegate {
     var pendingHide = 0              // consecutive failed checks; hide only after 2 (survives Space swipes)
     var shouldShow = false           // frontmost window is fullscreen
     var mouseAtTop = false           // cursor in menu-bar zone → yield to the real menu bar
+    var pendingRefresh = false       // Refresh Color requested; run it once the cursor leaves the top
     var enabled = true
     var lastApp: NSRunningApplication?
 
@@ -245,7 +246,22 @@ final class Tint: NSObject, NSMenuDelegate {
     func updateHover() {
         let p = NSEvent.mouseLocation
         let atTop = p.y >= screen.frame.maxY - menuBarH && p.x >= screen.frame.minX && p.x <= screen.frame.maxX
-        if atTop != mouseAtTop { mouseAtTop = atTop; applyVisibility() }
+        guard atTop != mouseAtTop else { return }
+        mouseAtTop = atTop
+        applyVisibility()
+        // deferred Refresh Color: capture only after the cursor leaves the menu-bar zone,
+        // when the fullscreen app's slid-down toolbar has retracted — else we'd sample it
+        if !atTop && pendingRefresh {
+            pendingRefresh = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.colorCache.removeAll()
+                    self.lastKey = ""
+                    self.evaluate()
+                }
+            }
+        }
     }
 
     func applyVisibility(animated: Bool = true) {
@@ -332,9 +348,17 @@ final class Tint: NSObject, NSMenuDelegate {
             guard pendingHide >= 2 else { return }
         }
         shouldShow = false
-        applyVisibility()
-        if force {   // disable/exclude must also clear strips resting on other Spaces
-            strips.forEach { $0.alphaValue = 0 }
+        // fade every strip on the CURRENT Space, not just `strip` — an orphan whose
+        // fullscreen Space was closed migrates to the desktop and must be hidden too
+        let targets = force ? strips : strips.filter { $0.isOnActiveSpace }
+        for s in targets where s.alphaValue != 0 {
+            if force { s.alphaValue = 0 }
+            else {
+                NSAnimationContext.runAnimationGroup { ctx in
+                    ctx.duration = 0.15
+                    s.animator().alphaValue = 0
+                }
+            }
         }
         lastKey = ""
     }
@@ -440,10 +464,10 @@ final class Tint: NSObject, NSMenuDelegate {
         if enabled { evaluate() } else { hide(force: true) }
     }
 
+    // Menu is open → cursor is at the top → the fullscreen app's toolbar is slid down
+    // and would be sampled. Defer the actual refresh until the cursor leaves (updateHover).
     @objc func refreshColor() {
-        colorCache.removeAll()
-        lastKey = ""
-        evaluate()
+        pendingRefresh = true
     }
 
     @objc func toggleExclude(_ sender: NSMenuItem) {
