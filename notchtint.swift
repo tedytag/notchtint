@@ -8,6 +8,8 @@ import Cocoa
 import CoreImage
 import ScreenCaptureKit
 import ServiceManagement
+import SwiftUI
+import UniformTypeIdentifiers
 
 let agentLabel = "com.notchtint.agent"
 var agentPlistPath: String { NSHomeDirectory() + "/Library/LaunchAgents/\(agentLabel).plist" }
@@ -113,8 +115,14 @@ final class Tint: NSObject, NSMenuDelegate {
     var shouldShow = false           // frontmost window is fullscreen
     var mouseAtTop = false           // cursor in menu-bar zone → yield to the real menu bar
     var pendingRefresh = false       // Refresh Color requested; run it once the cursor leaves the top
-    var enabled = true
+    var pulseStart = Date.distantPast    // when the shimmer faded in; enforces a minimum showtime
     var lastApp: NSRunningApplication?
+    var settingsWindow: NSWindow?
+
+    var enabled: Bool {              // persisted, so a disable survives relaunch
+        get { UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true }
+        set { UserDefaults.standard.set(newValue, forKey: "enabled") }
+    }
 
     var excluded: Set<String> {
         get { Set(UserDefaults.standard.stringArray(forKey: "excludedBundleIDs") ?? []) }
@@ -162,7 +170,53 @@ final class Tint: NSObject, NSMenuDelegate {
         g.locations = [0, 0.35, 0.65, 1]
         w.contentView?.layer = g
         w.contentView?.wantsLayer = true
+        g.masksToBounds = true
+        // Gemini-style shimmer shown while a capture is in flight: a conveyor gradient
+        // twice the strip's width (pattern repeats, so sliding by one width loops seamlessly)
+        let p = CAGradientLayer()
+        p.name = "pulse"
+        p.anchorPoint = .zero
+        p.frame = CGRect(x: 0, y: 0, width: rect.width * 2, height: rect.height)
+        p.startPoint = CGPoint(x: 0, y: 0.5)
+        p.endPoint = CGPoint(x: 1, y: 0.5)
+        p.colors = [NSColor.systemBlue, .systemPurple, .systemPink, .systemOrange, .systemBlue,
+                    .systemPurple, .systemPink, .systemOrange, .systemBlue].map { $0.cgColor }
+        p.opacity = 0
+        g.addSublayer(p)
         return w
+    }
+
+    // Shimmer on = slide the conveyor and fade it in; off = fade to the sampled color
+    // underneath, then stop the animation so an invisible layer isn't kept compositing.
+    func setPulsing(_ w: NSWindow?, _ on: Bool) {
+        guard let g = w?.contentView?.layer,
+              let p = g.sublayers?.first(where: { $0.name == "pulse" }) else { return }
+        if on {
+            if p.animation(forKey: "slide") == nil {
+                let a = CABasicAnimation(keyPath: "position.x")
+                a.fromValue = 0
+                a.toValue = -g.bounds.width
+                a.duration = 3.0
+                a.repeatCount = .infinity
+                p.add(a, forKey: "slide")
+            }
+            if p.opacity == 0 { pulseStart = Date() }
+            p.opacity = 1                        // implicit 0.25s fade-in
+        } else if p.opacity != 0 {
+            // captures often finish in <0.5s — without a minimum showtime the shimmer
+            // reads as a blink; the sampled color waits underneath until the fade
+            let started = pulseStart
+            let remain = max(0, 1.6 - Date().timeIntervalSince(started))
+            DispatchQueue.main.asyncAfter(deadline: .now() + remain) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.pulseStart == started else { return }  // re-armed since
+                    p.opacity = 0                // implicit fade-out
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        if p.opacity == 0 { p.removeAnimation(forKey: "slide") }
+                    }
+                }
+            }
+        }
     }
 
     func setColors(_ w: NSWindow?, _ c: (left: NSColor, right: NSColor)) {
@@ -238,7 +292,9 @@ final class Tint: NSObject, NSMenuDelegate {
         strips.forEach { $0.orderOut(nil) }
         strips = []
         strip = nil
-        menuBarH = 24            // new display geometry — let makeStrip re-measure from scratch
+        // re-measure now, not lazily in makeStrip: evaluate's fullscreen check needs it first,
+        // and a bare 24 (< notch 32) rejected every fullscreen window → no strip ever again (lid sleep/wake)
+        menuBarH = max(screen.frame.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, 24)
         lastKey = ""
         evaluate()
     }
@@ -326,15 +382,26 @@ final class Tint: NSObject, NSMenuDelegate {
             applyVisibility(animated: !isNew)
             return
         }
+        // seed a brand-new strip with the icon's average color so it never flashes black
+        if (s.contentView?.layer as? CAGradientLayer)?.colors == nil {
+            let icon = app.icon.map(averageColor) ?? .black
+            setColors(s, (icon, icon))
+        }
         applyVisibility()
         guard key != lastKey else { return }     // capture already in flight
         if colorCache.count > 200 { colorCache.removeAll() }   // window resizes mint new keys forever
         lastKey = key
-        let icon = app.icon.map(averageColor) ?? .black
+        setPulsing(s, true)                      // shimmer until the sampled color lands
         Task { @MainActor in
-            let c = await topEdgeColors(pid: pid) ?? (icon, icon)
-            self.colorCache[key] = c
-            self.setColors(self.strip, c)
+            defer { self.setPulsing(self.strip, false) }
+            if let c = await topEdgeColors(pid: pid) {
+                self.colorCache[key] = c
+                // apply only if this window is still current — a slow capture must not
+                // paint the previous app's color onto the next app's strip
+                if self.lastKey == key { self.setColors(self.strip, c) }
+            } else if self.lastKey == key {
+                self.lastKey = ""                // failure isn't cached; retry next tick
+            }
         }
     }
 
@@ -430,6 +497,7 @@ final class Tint: NSObject, NSMenuDelegate {
         menu.addItem(item("Refresh Color", "arrow.clockwise", #selector(refreshColor), key: "r"))
 
         menu.addItem(.separator())
+        menu.addItem(item("Settings…", "gearshape", #selector(openSettings), key: ","))
         menu.addItem(switchItem("Start at Login", "bolt", isOn: loginEnabled, #selector(toggleLogin)))
 
         menu.addItem(.separator())
@@ -478,6 +546,25 @@ final class Tint: NSObject, NSMenuDelegate {
         if excluded.contains(bid) { hide(force: true) } else { evaluate() }
     }
 
+    // Settings window edited something — re-derive everything from UserDefaults
+    func settingsDidChange() {
+        lastKey = ""
+        if enabled { evaluate() } else { hide(force: true) }
+    }
+
+    @objc func openSettings() {
+        if settingsWindow == nil {
+            let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(tint: self)))
+            w.title = "NotchTint"
+            w.styleMask = [.titled, .closable]
+            w.isReleasedWhenClosed = false
+            w.center()
+            settingsWindow = w
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.makeKeyAndOrderFront(nil)
+    }
+
     @objc func toggleLogin() {
         if isBundled {              // modern API; shows up in System Settings → Login Items
             let svc = SMAppService.mainApp
@@ -501,14 +588,133 @@ final class Tint: NSObject, NSMenuDelegate {
     }
 }
 
+// MARK: - Settings window
+
+struct SettingsView: View {
+    let tint: Tint
+    @State private var enabled = true
+    @State private var login = false
+    @State private var excluded: [String] = []
+    @State private var custom: [String: [Double]] = [:]
+
+    func load() {
+        enabled = tint.enabled
+        login = tint.loginEnabled
+        excluded = Array(tint.excluded).sorted { appName($0) < appName($1) }
+        custom = tint.customColors
+    }
+
+    func appName(_ bid: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) else { return bid }
+        return FileManager.default.displayName(atPath: url.path)
+    }
+
+    func appIcon(_ bid: String) -> NSImage {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid)
+        else { return NSWorkspace.shared.icon(for: .applicationBundle) }
+        return NSWorkspace.shared.icon(forFile: url.path)
+    }
+
+    func appLabel(_ bid: String) -> some View {
+        HStack(spacing: 8) {
+            Image(nsImage: appIcon(bid)).resizable().frame(width: 20, height: 20)
+            Text(appName(bid))
+        }
+    }
+
+    func removeButton(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "minus.circle.fill") }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+    }
+
+    func addApp() {
+        let p = NSOpenPanel()
+        p.allowedContentTypes = [.applicationBundle]
+        p.directoryURL = URL(fileURLWithPath: "/Applications")
+        p.allowsMultipleSelection = true
+        guard p.runModal() == .OK else { return }
+        for url in p.urls {
+            if let bid = Bundle(url: url)?.bundleIdentifier { tint.excluded.insert(bid) }
+        }
+        load()
+        tint.settingsDidChange()
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Enabled", isOn: $enabled)
+                    .onChange(of: enabled) { v in
+                        tint.enabled = v
+                        tint.settingsDidChange()
+                    }
+                Toggle("Start at Login", isOn: $login)
+                    .onChange(of: login) { v in
+                        if v != tint.loginEnabled { tint.toggleLogin() }
+                    }
+            }
+            Section("Excluded Apps") {
+                if excluded.isEmpty {
+                    Text("No excluded apps").foregroundStyle(.secondary)
+                }
+                ForEach(excluded, id: \.self) { bid in
+                    HStack {
+                        appLabel(bid)
+                        Spacer()
+                        removeButton {
+                            tint.excluded.remove(bid)
+                            load()
+                            tint.settingsDidChange()
+                        }
+                    }
+                }
+                Button("Add App…") { addApp() }
+            }
+            Section("Custom Colors") {
+                if custom.isEmpty {
+                    Text("None — use “Pick Color” in the menu bar menu").foregroundStyle(.secondary)
+                }
+                ForEach(custom.keys.sorted { appName($0) < appName($1) }, id: \.self) { bid in
+                    HStack {
+                        appLabel(bid)
+                        Spacer()
+                        ColorPicker("", selection: Binding(
+                            get: {
+                                let a = custom[bid] ?? [0, 0, 0]
+                                return Color(red: a[0], green: a[1], blue: a[2])
+                            },
+                            set: { c in
+                                guard let n = NSColor(c).usingColorSpace(.deviceRGB) else { return }
+                                custom[bid] = [n.redComponent, n.greenComponent, n.blueComponent]
+                                tint.customColors = custom
+                                tint.settingsDidChange()
+                            }), supportsOpacity: false)
+                            .labelsHidden()
+                        removeButton {
+                            tint.customColors[bid] = nil
+                            load()
+                            tint.settingsDidChange()
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(width: 380, height: 440)
+        .onAppear { load() }
+    }
+}
+
 // MARK: - Self-check (runs on every launch, fails loudly if sampling breaks)
 
 func selfCheck() {
     let img = NSImage(size: NSSize(width: 8, height: 8))
     img.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 8, height: 8).fill(); img.unlockFocus()
     let a = averageColor(img).usingColorSpace(.deviceRGB)!
-    assert(a.redComponent > 0.7 && a.redComponent > a.greenComponent + 0.4
-           && a.redComponent > a.blueComponent + 0.4, "averageColor broken")
+    // precondition, not assert: assert is compiled out by -O and would check nothing
+    precondition(a.redComponent > 0.7 && a.redComponent > a.greenComponent + 0.4
+                 && a.redComponent > a.blueComponent + 0.4, "averageColor broken")
 
     let ctx = CGContext(data: nil, width: 64, height: 8, bitsPerComponent: 8, bytesPerRow: 64 * 4,
                         space: CGColorSpaceCreateDeviceRGB(),
@@ -520,8 +726,8 @@ func selfCheck() {
     ctx.fill(CGRect(x: 32, y: 0, width: 32, height: 8))
     let e = edgeColors(ctx.makeImage()!)!
     let l = e.left.usingColorSpace(.deviceRGB)!, r = e.right.usingColorSpace(.deviceRGB)!
-    assert(l.greenComponent > 0.7 && l.blueComponent < 0.3, "edgeColors left broken")
-    assert(r.blueComponent > 0.7 && r.greenComponent < 0.3, "edgeColors right broken")
+    precondition(l.greenComponent > 0.7 && l.blueComponent < 0.3, "edgeColors left broken")
+    precondition(r.blueComponent > 0.7 && r.greenComponent < 0.3, "edgeColors right broken")
 }
 
 selfCheck()
