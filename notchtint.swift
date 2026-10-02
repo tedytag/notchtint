@@ -5,7 +5,6 @@
 // Run:    ./notchtint     First launch asks for Screen Recording permission — grant and relaunch.
 // A menu-bar item provides Enable/Disable, per-app exclusions, Start at Login and Quit.
 import Cocoa
-import CoreImage
 import ScreenCaptureKit
 import ServiceManagement
 import SwiftUI
@@ -25,20 +24,6 @@ func run(_ path: String, _ args: [String]) -> Int32 {
 }
 
 // MARK: - Color sampling
-
-// Average color of an icon (fallback when window capture is unavailable).
-func averageColor(_ image: NSImage) -> NSColor {
-    guard let tiff = image.tiffRepresentation, let ci = CIImage(data: tiff) else { return .black }
-    let params = [kCIInputImageKey: ci, kCIInputExtentKey: CIVector(cgRect: ci.extent)]
-    guard let out = CIFilter(name: "CIAreaAverage", parameters: params)?.outputImage else { return .black }
-    var px = [UInt8](repeating: 0, count: 4)
-    CIContext(options: [.workingColorSpace: NSNull()]).render(
-        out, toBitmap: &px, rowBytes: 4,
-        bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-        format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
-    return NSColor(red: CGFloat(px[0]) / 255, green: CGFloat(px[1]) / 255,
-                   blue: CGFloat(px[2]) / 255, alpha: 1)
-}
 
 // Per-channel median of the window's top edge, sampled separately in the zones left
 // and right of the notch — sidebar and content often differ, so the strip gets both.
@@ -109,12 +94,16 @@ final class Tint: NSObject, NSMenuDelegate {
     var strip: NSWindow?             // the one on the current Space
     var statusItem: NSStatusItem?
     var menuBarH: CGFloat = 24
+    var notch = CGRect.zero          // notch span in strip coords, measured in makeStrip
     var lastKey = ""                 // window id + size of the currently applied color
     var colorCache: [String: (left: NSColor, right: NSColor)] = [:]   // window+size → edge colors; cleared on theme change
     var pendingHide = 0              // consecutive failed checks; hide only after 2 (survives Space swipes)
     var shouldShow = false           // frontmost window is fullscreen
     var mouseAtTop = false           // cursor in menu-bar zone → yield to the real menu bar
-    var pendingRefresh = false       // Refresh Color requested; run it once the cursor leaves the top
+    var pendingRefresh: (pid: pid_t, wid: CGWindowID, strip: NSWindow?)?   // Refresh Color waiting for a safe cursor
+    var safeSince: Date?             // when the cursor last went clear of the menu bar + toolbar
+    var lastWID: CGWindowID = 0      // frontmost fullscreen window, as of the last evaluate
+    var forceCapture = false         // set around one evaluate(): re-capture the current window despite the cache
     var pulseStart = Date.distantPast    // when the shimmer faded in; enforces a minimum showtime
     var lastApp: NSRunningApplication?
     var settingsWindow: NSWindow?
@@ -156,63 +145,160 @@ final class Tint: NSObject, NSMenuDelegate {
         // fallback is 1px short — never shrink a height we've already seen correctly
         menuBarH = max(f.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, menuBarH)
         let rect = NSRect(x: f.minX, y: f.maxY - menuBarH, width: f.width, height: menuBarH)
-        let w = NSWindow(contentRect: rect, styleMask: .borderless, backing: .buffered, defer: false)
+        // window reaches `drop` below the menu bar so the halo can spill onto the content;
+        // the color fill stays in the menu-bar band on top. Transparent + click-through elsewhere.
+        let drop: CGFloat = 60
+        let w = NSWindow(contentRect: NSRect(x: f.minX, y: rect.minY - drop, width: f.width, height: menuBarH + drop),
+                         styleMask: .borderless, backing: .buffered, defer: false)
         w.level = NSWindow.Level(Int(CGWindowLevelForKey(.mainMenuWindow)) + 1)
         w.collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]   // joins the Space it's ordered onto and stays there
         w.ignoresMouseEvents = true
         w.hasShadow = false
-        w.isOpaque = true
+        w.isOpaque = false
+        w.backgroundColor = .clear       // outside the revealed fill the real menu bar shows through
         w.alphaValue = 0
-        // horizontal gradient: solid at the sides, blend hidden behind the notch in the middle
-        let g = CAGradientLayer()
-        g.startPoint = CGPoint(x: 0, y: 0.5)
-        g.endPoint = CGPoint(x: 1, y: 0.5)
-        g.locations = [0, 0.35, 0.65, 1]
-        w.contentView?.layer = g
+        let root = CALayer()
+        w.contentView?.layer = root
         w.contentView?.wantsLayer = true
-        g.masksToBounds = true
-        // Gemini-style shimmer shown while a capture is in flight: a conveyor gradient
-        // twice the strip's width (pattern repeats, so sliding by one width loops seamlessly)
-        let p = CAGradientLayer()
-        p.name = "pulse"
-        p.anchorPoint = .zero
-        p.frame = CGRect(x: 0, y: 0, width: rect.width * 2, height: rect.height)
-        p.startPoint = CGPoint(x: 0, y: 0.5)
-        p.endPoint = CGPoint(x: 1, y: 0.5)
-        p.colors = [NSColor.systemBlue, .systemPurple, .systemPink, .systemOrange, .systemBlue,
-                    .systemPurple, .systemPink, .systemOrange, .systemBlue].map { $0.cgColor }
-        p.opacity = 0
-        g.addSublayer(p)
+        let bounds = CGRect(x: 0, y: drop, width: rect.width, height: rect.height)   // menu-bar band
+        // notch span in strip coords; the auxiliary areas are the menu-bar zones beside it
+        notch = CGRect(x: rect.width / 2 - 100, y: drop, width: 200, height: rect.height)
+        if let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea {
+            notch = CGRect(x: l.maxX - f.minX, y: drop, width: r.minX - l.maxX, height: rect.height)
+        }
+        func horizontal(_ g: CAGradientLayer) {
+            g.startPoint = CGPoint(x: 0, y: 0.5)
+            g.endPoint = CGPoint(x: 1, y: 0.5)
+        }
+        let clear = NSColor.clear.cgColor, black = NSColor.black.cgColor
+
+        // sampled two-tone color: solid at the sides, blend hidden behind the notch
+        let fill = CAGradientLayer()
+        fill.name = "fill"
+        fill.frame = bounds
+        horizontal(fill)
+        fill.locations = [0, 0.35, 0.65, 1]
+        // feathered mask centered on the notch; its width animates notch → full strip,
+        // so the color floods out from under the notch. Open by default: cached colors show instantly.
+        let reveal = CAGradientLayer()
+        reveal.name = "reveal"
+        horizontal(reveal)
+        reveal.colors = [clear, black, black, clear]
+        reveal.locations = [0, 0.12, 0.88, 1]
+        reveal.position = CGPoint(x: notch.midX, y: rect.height / 2)
+        reveal.bounds = CGRect(x: 0, y: 0, width: revealWidth(open: true), height: rect.height)
+        fill.mask = reveal
+        // glints riding the flood's leading edges (one per side)
+        for _ in 0..<2 {
+            let s = CAGradientLayer()
+            s.name = "sheen"
+            horizontal(s)
+            s.colors = [clear, NSColor.white.withAlphaComponent(0.55).cgColor, clear]
+            s.bounds = CGRect(x: 0, y: 0, width: 90, height: rect.height)
+            s.position = reveal.position
+            s.opacity = 0
+            fill.addSublayer(s)
+        }
+
+        // violet halo around the notch while a capture is in flight: dark at the top →
+        // violet → lavender core at the notch's lower lip → fading out below the menu bar
+        let glow = CAGradientLayer()
+        glow.name = "glow"
+        let H = drop + rect.height, lip = rect.height / H     // lip position, fraction from the top
+        glow.anchorPoint = CGPoint(x: 0.5, y: drop / H)        // breathe from the lip
+        glow.frame = CGRect(x: notch.minX - 110, y: 0, width: notch.width + 220, height: H)
+        glow.startPoint = CGPoint(x: 0.5, y: 1)
+        glow.endPoint = CGPoint(x: 0.5, y: 0)
+        let violet = NSColor(srgbRed: 0.36, green: 0.12, blue: 0.96, alpha: 1)
+        glow.colors = [violet.withAlphaComponent(0), violet.withAlphaComponent(0.95),
+                       NSColor(srgbRed: 0.88, green: 0.84, blue: 1, alpha: 1),
+                       violet.withAlphaComponent(0.5), violet.withAlphaComponent(0)].map(\.cgColor)
+        glow.locations = [0, lip * 0.55, lip, lip + (1 - lip) * 0.35, 1].map { NSNumber(value: Double($0)) }
+        let fade = CAGradientLayer()     // side feather so the halo melts into the menu bar
+        fade.frame = glow.bounds
+        horizontal(fade)
+        fade.colors = [clear, black, black, clear]
+        fade.locations = [0, 0.3, 0.7, 1]
+        glow.mask = fade
+        glow.opacity = 0
+
+        root.addSublayer(fill)
+        root.addSublayer(glow)
         return w
     }
 
-    // Shimmer on = slide the conveyor and fade it in; off = fade to the sampled color
-    // underneath, then stop the animation so an invisible layer isn't kept compositing.
+    // Mask width: collapsed = exactly the notch (color hidden behind it);
+    // open = solid part (76% after feathering) reaches the farther screen edge.
+    func revealWidth(open: Bool) -> CGFloat {
+        open ? 2 * max(notch.midX, screen.frame.width - notch.midX) / 0.76 : notch.width
+    }
+
+    func layer(_ w: NSWindow?, _ name: String) -> CALayer? {
+        w?.contentView?.layer?.sublayers?.first { $0.name == name }
+    }
+
+    // Pulse on = old color retracts behind the notch, halo breathes around it.
+    // Off = halo fades, the sampled color floods out from under the notch with edge glints.
     func setPulsing(_ w: NSWindow?, _ on: Bool) {
-        guard let g = w?.contentView?.layer,
-              let p = g.sublayers?.first(where: { $0.name == "pulse" }) else { return }
+        guard let glow = layer(w, "glow"), let fill = layer(w, "fill"),
+              let reveal = fill.mask else { return }
         if on {
-            if p.animation(forKey: "slide") == nil {
-                let a = CABasicAnimation(keyPath: "position.x")
-                a.fromValue = 0
-                a.toValue = -g.bounds.width
-                a.duration = 3.0
-                a.repeatCount = .infinity
-                p.add(a, forKey: "slide")
+            if glow.animation(forKey: "breathe") == nil {
+                let scale = CABasicAnimation(keyPath: "transform.scale.x")
+                scale.fromValue = 0.9
+                scale.toValue = 1.12
+                let rise = CABasicAnimation(keyPath: "transform.scale.y")   // halo swells up and down from the lip
+                rise.fromValue = 0.8
+                rise.toValue = 1.15
+                let g = CAAnimationGroup()
+                g.animations = [scale, rise]
+                g.duration = 1.1
+                g.autoreverses = true
+                g.repeatCount = .infinity
+                g.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                glow.add(g, forKey: "breathe")
             }
-            if p.opacity == 0 { pulseStart = Date() }
-            p.opacity = 1                        // implicit 0.25s fade-in
-        } else if p.opacity != 0 {
-            // captures often finish in <0.5s — without a minimum showtime the shimmer
-            // reads as a blink; the sampled color waits underneath until the fade
+            if glow.opacity == 0 {
+                pulseStart = Date()
+                CATransaction.begin()
+                CATransaction.setAnimationDuration(0.35)
+                reveal.bounds.size.width = revealWidth(open: false)
+                CATransaction.commit()
+            }
+            glow.opacity = 1                     // implicit 0.25s fade-in
+        } else if glow.opacity != 0 {
+            // captures often finish in <0.5s — without a minimum showtime the halo
+            // reads as a blink; the sampled color waits behind the notch until then
             let started = pulseStart
             let remain = max(0, 1.6 - Date().timeIntervalSince(started))
             DispatchQueue.main.asyncAfter(deadline: .now() + remain) { [weak self] in
                 MainActor.assumeIsolated {
                     guard let self, self.pulseStart == started else { return }  // re-armed since
-                    p.opacity = 0                // implicit fade-out
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        if p.opacity == 0 { p.removeAnimation(forKey: "slide") }
+                    let dur = 0.9
+                    let ease = CAMediaTimingFunction(controlPoints: 0.2, 0.7, 0.2, 1)
+                    CATransaction.begin()
+                    CATransaction.setAnimationDuration(dur)
+                    CATransaction.setAnimationTimingFunction(ease)
+                    glow.opacity = 0
+                    reveal.bounds.size.width = self.revealWidth(open: true)
+                    CATransaction.commit()
+                    // glints travel with the solid edge: notch edge → screen edge
+                    let sheens = fill.sublayers?.filter { $0.name == "sheen" } ?? []
+                    for (s, dir) in zip(sheens, [-1.0, 1.0]) {
+                        let move = CABasicAnimation(keyPath: "position.x")
+                        move.fromValue = self.notch.midX + dir * self.revealWidth(open: false) * 0.38
+                        move.toValue = self.notch.midX + dir * self.revealWidth(open: true) * 0.38
+                        move.timingFunction = ease
+                        let flash = CAKeyframeAnimation(keyPath: "opacity")
+                        flash.values = [0, 1, 0]
+                        flash.keyTimes = [0, 0.25, 1]
+                        let g = CAAnimationGroup()
+                        g.animations = [move, flash]
+                        g.duration = dur
+                        s.add(g, forKey: "glint")
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + dur) {
+                        if glow.opacity == 0 { glow.removeAnimation(forKey: "breathe") }
                     }
                 }
             }
@@ -220,7 +306,7 @@ final class Tint: NSObject, NSMenuDelegate {
     }
 
     func setColors(_ w: NSWindow?, _ c: (left: NSColor, right: NSColor)) {
-        (w?.contentView?.layer as? CAGradientLayer)?.colors =
+        (layer(w, "fill") as? CAGradientLayer)?.colors =
             [c.left.cgColor, c.left.cgColor, c.right.cgColor, c.right.cgColor]
     }
 
@@ -258,7 +344,10 @@ final class Tint: NSObject, NSMenuDelegate {
 
     func start() {
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.evaluate(fromTimer: true) }
+            MainActor.assumeIsolated {
+                self?.evaluate(fromTimer: true)
+                self?.runPendingRefresh()
+            }
         }
         NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved]) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateHover() }
@@ -305,19 +394,35 @@ final class Tint: NSObject, NSMenuDelegate {
         guard atTop != mouseAtTop else { return }
         mouseAtTop = atTop
         applyVisibility()
-        // deferred Refresh Color: capture only after the cursor leaves the menu-bar zone,
-        // when the fullscreen app's slid-down toolbar has retracted — else we'd sample it
-        if !atTop && pendingRefresh {
-            pendingRefresh = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                MainActor.assumeIsolated {
-                    guard let self else { return }
-                    self.colorCache.removeAll()
-                    self.lastKey = ""
-                    self.evaluate()
-                }
-            }
+    }
+
+    // Deferred Refresh Color, polled every tick: capture only once the cursor has stayed
+    // clear of the slid-down menu bar AND toolbar for 0.8s — else we'd sample the toolbar.
+    // Polled, not edge-triggered: the status menu is drawn out of process, so the mouse
+    // monitor sees the cursor leave the top before the click ever happens.
+    func runPendingRefresh() {
+        guard let p = pendingRefresh,
+              let front = NSWorkspace.shared.frontmostApplication,
+              front != NSRunningApplication.current      // alert just closed, focus still returning
+        else { return }
+        guard front.processIdentifier == p.pid, lastWID == p.wid else {
+            pendingRefresh = nil                         // user moved on — drop it, restore the old color
+            safeSince = nil
+            setPulsing(p.strip, false)
+            return
         }
+        // ponytail: 120pt = menu bar + tallest common toolbar; a taller toolbar can still be sampled
+        guard NSEvent.mouseLocation.y < screen.frame.maxY - 120 else { safeSince = nil; return }
+        let since = safeSince ?? Date()
+        safeSince = since
+        guard Date().timeIntervalSince(since) >= 0.8 else { return }
+        pendingRefresh = nil
+        safeSince = nil
+        // bypass the cache for the current window only — clearing it all made
+        // every other window re-scan on its next visit
+        forceCapture = true
+        evaluate()
+        forceCapture = false
     }
 
     func applyVisibility(animated: Bool = true) {
@@ -366,6 +471,7 @@ final class Tint: NSObject, NSMenuDelegate {
         pendingHide = 0
         let (s, isNew) = activeStrip()
         strip = s
+        lastWID = wid
         updateHover()
         if let arr = customColors[app.bundleIdentifier ?? ""], arr.count == 3 {
             let c = NSColor(red: arr[0], green: arr[1], blue: arr[2], alpha: 1)
@@ -375,25 +481,25 @@ final class Tint: NSObject, NSMenuDelegate {
             return
         }
         let key = "\(wid)-\(Int(W))x\(Int(H))"
-        if let cached = colorCache[key] {        // known window — instant, no capture
+        // drop the stale entry, not just skip it: if this capture fails, the next tick
+        // must retry instead of quietly falling back to the old color
+        if forceCapture { colorCache[key] = nil }
+        if let cached = colorCache[key] {   // known window — instant, no capture
             setColors(s, cached)                 // color BEFORE showing: no black flash
             lastKey = key
             // returning to a known window: appear instantly, as if the strip never left
             applyVisibility(animated: !isNew)
             return
         }
-        // seed a brand-new strip with the icon's average color so it never flashes black
-        if (s.contentView?.layer as? CAGradientLayer)?.colors == nil {
-            let icon = app.icon.map(averageColor) ?? .black
-            setColors(s, (icon, icon))
-        }
         applyVisibility()
-        guard key != lastKey else { return }     // capture already in flight
+        // skip if a capture is already in flight, or a Refresh is waiting for a safe cursor
+        // (its own forced evaluate captures then)
+        guard (key != lastKey && pendingRefresh == nil) || forceCapture else { return }
         if colorCache.count > 200 { colorCache.removeAll() }   // window resizes mint new keys forever
         lastKey = key
-        setPulsing(s, true)                      // shimmer until the sampled color lands
+        setPulsing(s, true)                      // halo until the sampled color lands
         Task { @MainActor in
-            defer { self.setPulsing(self.strip, false) }
+            defer { self.setPulsing(s, false) }  // s, not self.strip: a Space switch mid-capture must not strand the halo
             if let c = await topEdgeColors(pid: pid) {
                 self.colorCache[key] = c
                 // apply only if this window is still current — a slow capture must not
@@ -533,9 +639,27 @@ final class Tint: NSObject, NSMenuDelegate {
     }
 
     // Menu is open → cursor is at the top → the fullscreen app's toolbar is slid down
-    // and would be sampled. Defer the actual refresh until the cursor leaves (updateHover).
+    // and would be sampled. Defer the actual capture until it's safe (runPendingRefresh).
     @objc func refreshColor() {
-        pendingRefresh = true
+        guard let app = lastApp else { return }
+        // a custom color overrides sampling, so a refresh would silently do nothing —
+        // refreshing means replacing it; ask first
+        if let bid = app.bundleIdentifier, customColors[bid] != nil {
+            let name = app.localizedName ?? bid
+            let a = NSAlert()
+            a.messageText = "Replace custom color?"
+            a.informativeText = "\(name) has a custom color. It will be replaced with a newly sampled one."
+            a.addButton(withTitle: "Replace")
+            a.addButton(withTitle: "Cancel")
+            NSApp.activate(ignoringOtherApps: true)
+            let ok = a.runModal() == .alertFirstButtonReturn
+            app.activate()                       // hand focus back to the fullscreen app
+            guard ok else { return }
+            customColors[bid] = nil
+        }
+        pendingRefresh = (app.processIdentifier, lastWID, strip)
+        safeSince = nil
+        setPulsing(strip, true)                  // halo right away: the refresh is accepted, just waiting
     }
 
     @objc func toggleExclude(_ sender: NSMenuItem) {
@@ -709,13 +833,6 @@ struct SettingsView: View {
 // MARK: - Self-check (runs on every launch, fails loudly if sampling breaks)
 
 func selfCheck() {
-    let img = NSImage(size: NSSize(width: 8, height: 8))
-    img.lockFocus(); NSColor.red.setFill(); NSRect(x: 0, y: 0, width: 8, height: 8).fill(); img.unlockFocus()
-    let a = averageColor(img).usingColorSpace(.deviceRGB)!
-    // precondition, not assert: assert is compiled out by -O and would check nothing
-    precondition(a.redComponent > 0.7 && a.redComponent > a.greenComponent + 0.4
-                 && a.redComponent > a.blueComponent + 0.4, "averageColor broken")
-
     let ctx = CGContext(data: nil, width: 64, height: 8, bitsPerComponent: 8, bytesPerRow: 64 * 4,
                         space: CGColorSpaceCreateDeviceRGB(),
                         bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -726,6 +843,7 @@ func selfCheck() {
     ctx.fill(CGRect(x: 32, y: 0, width: 32, height: 8))
     let e = edgeColors(ctx.makeImage()!)!
     let l = e.left.usingColorSpace(.deviceRGB)!, r = e.right.usingColorSpace(.deviceRGB)!
+    // precondition, not assert: assert is compiled out by -O and would check nothing
     precondition(l.greenComponent > 0.7 && l.blueComponent < 0.3, "edgeColors left broken")
     precondition(r.blueComponent > 0.7 && r.greenComponent < 0.3, "edgeColors right broken")
 }
