@@ -27,6 +27,23 @@ exact colors of the app's top edge — no more black void framing the camera.
 
 ## Install
 
+Apple Silicon, macOS 14+.
+
+```sh
+brew install --cask tedytag/tap/notchtint
+```
+
+NotchTint isn't notarized (no paid Apple Developer account), so macOS blocks
+the first launch. Allow it in *System Settings → Privacy & Security → Open
+Anyway*, or clear the quarantine flag:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/NotchTint.app
+```
+
+Or download `NotchTint.zip` from [Releases](https://github.com/tedytag/notchtint/releases),
+or build from source:
+
 ```sh
 git clone https://github.com/tedytag/notchtint.git
 cd notchtint
