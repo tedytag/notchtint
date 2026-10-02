@@ -171,6 +171,9 @@ final class Tint: NSObject, NSMenuDelegate {
             g.endPoint = CGPoint(x: 1, y: 0.5)
         }
         let clear = NSColor.clear.cgColor, black = NSColor.black.cgColor
+        // halo palette, shared by the notch rim and the flood's glints
+        let violet = NSColor(srgbRed: 0.36, green: 0.12, blue: 0.96, alpha: 1)
+        let lavender = NSColor(srgbRed: 0.88, green: 0.84, blue: 1, alpha: 1)
 
         // sampled two-tone color: solid at the sides, blend hidden behind the notch
         let fill = CAGradientLayer()
@@ -193,33 +196,47 @@ final class Tint: NSObject, NSMenuDelegate {
             let s = CAGradientLayer()
             s.name = "sheen"
             horizontal(s)
-            s.colors = [clear, NSColor.white.withAlphaComponent(0.55).cgColor, clear]
+            s.colors = [clear, violet.withAlphaComponent(0.8).cgColor, lavender.cgColor,
+                        violet.withAlphaComponent(0.8).cgColor, clear]
             s.bounds = CGRect(x: 0, y: 0, width: 90, height: rect.height)
             s.position = reveal.position
             s.opacity = 0
             fill.addSublayer(s)
         }
 
-        // violet halo around the notch while a capture is in flight: dark at the top →
-        // violet → lavender core at the notch's lower lip → fading out below the menu bar
-        let glow = CAGradientLayer()
+        // halo hugging the notch outline while a capture is in flight: a notch-shaped
+        // fill hides behind the hardware notch, only its blurred shadows show — evenly
+        // along the sides and the bottom lip. Lavender rim close in, violet bloom further out.
+        let glow = CALayer()
         glow.name = "glow"
-        let H = drop + rect.height, lip = rect.height / H     // lip position, fraction from the top
-        glow.anchorPoint = CGPoint(x: 0.5, y: drop / H)        // breathe from the lip
-        glow.frame = CGRect(x: notch.minX - 110, y: 0, width: notch.width + 220, height: H)
-        glow.startPoint = CGPoint(x: 0.5, y: 1)
-        glow.endPoint = CGPoint(x: 0.5, y: 0)
-        let violet = NSColor(srgbRed: 0.36, green: 0.12, blue: 0.96, alpha: 1)
-        glow.colors = [violet.withAlphaComponent(0), violet.withAlphaComponent(0.95),
-                       NSColor(srgbRed: 0.88, green: 0.84, blue: 1, alpha: 1),
-                       violet.withAlphaComponent(0.5), violet.withAlphaComponent(0)].map(\.cgColor)
-        glow.locations = [0, lip * 0.55, lip, lip + (1 - lip) * 0.35, 1].map { NSNumber(value: Double($0)) }
-        let fade = CAGradientLayer()     // side feather so the halo melts into the menu bar
-        fade.frame = glow.bounds
-        horizontal(fade)
-        fade.colors = [clear, black, black, clear]
-        fade.locations = [0, 0.3, 0.7, 1]
-        glow.mask = fade
+        glow.frame = CGRect(x: 0, y: 0, width: rect.width, height: drop + rect.height)
+        // Notch outline: concave "ears" where it meets the screen's top edge, straight sides,
+        // convex bottom corners. Parts above the screen edge are clipped by the window.
+        // ponytail: eyeballed to the MacBook notch (not measurable via API) — tune by eye:
+        // widen = side glow too thin vs bottom; ear/corner = rim not following the curves
+        let widen: CGFloat = 2, ear: CGFloat = 8, corner: CGFloat = 10
+        let l = notch.minX - widen, r = notch.maxX + widen
+        let bottom = drop, top = drop + rect.height
+        let shape = CGMutablePath()
+        shape.move(to: CGPoint(x: l - ear, y: top + 20))
+        shape.addLine(to: CGPoint(x: l - ear, y: top))
+        shape.addArc(tangent1End: CGPoint(x: l, y: top), tangent2End: CGPoint(x: l, y: bottom), radius: ear)
+        shape.addArc(tangent1End: CGPoint(x: l, y: bottom), tangent2End: CGPoint(x: r, y: bottom), radius: corner)
+        shape.addArc(tangent1End: CGPoint(x: r, y: bottom), tangent2End: CGPoint(x: r, y: top), radius: corner)
+        shape.addArc(tangent1End: CGPoint(x: r, y: top), tangent2End: CGPoint(x: r + ear, y: top), radius: ear)
+        shape.addLine(to: CGPoint(x: r + ear, y: top + 20))
+        shape.closeSubpath()
+        for (color, radius) in [(violet, 18.0), (violet, 9.0), (lavender, 4.0)] {
+            let rim = CAShapeLayer()
+            rim.path = shape
+            rim.fillColor = NSColor.black.cgColor   // only casts the shadow; any overshoot past the notch stays invisible
+            rim.shadowPath = shape
+            rim.shadowColor = color.cgColor
+            rim.shadowOffset = .zero
+            rim.shadowRadius = radius
+            rim.shadowOpacity = 1
+            glow.addSublayer(rim)
+        }
         glow.opacity = 0
 
         root.addSublayer(fill)
@@ -243,20 +260,23 @@ final class Tint: NSObject, NSMenuDelegate {
         guard let glow = layer(w, "glow"), let fill = layer(w, "fill"),
               let reveal = fill.mask else { return }
         if on {
-            if glow.animation(forKey: "breathe") == nil {
-                let scale = CABasicAnimation(keyPath: "transform.scale.x")
-                scale.fromValue = 0.9
-                scale.toValue = 1.12
-                let rise = CABasicAnimation(keyPath: "transform.scale.y")   // halo swells up and down from the lip
-                rise.fromValue = 0.8
-                rise.toValue = 1.15
-                let g = CAAnimationGroup()
-                g.animations = [scale, rise]
-                g.duration = 1.1
-                g.autoreverses = true
-                g.repeatCount = .infinity
-                g.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                glow.add(g, forKey: "breathe")
+            if glow.sublayers?.first?.animation(forKey: "breathe") == nil {
+                // each rim's blur swells and dims (×0.6…×1.6 radius) — the halo breathes in place
+                for rim in glow.sublayers ?? [] {
+                    let radius = CABasicAnimation(keyPath: "shadowRadius")
+                    radius.fromValue = rim.shadowRadius * 0.6
+                    radius.toValue = rim.shadowRadius * 1.6
+                    let dim = CABasicAnimation(keyPath: "shadowOpacity")
+                    dim.fromValue = 1
+                    dim.toValue = 0.6
+                    let g = CAAnimationGroup()
+                    g.animations = [radius, dim]
+                    g.duration = 1.1
+                    g.autoreverses = true
+                    g.repeatCount = .infinity
+                    g.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    rim.add(g, forKey: "breathe")
+                }
             }
             if glow.opacity == 0 {
                 pulseStart = Date()
@@ -298,7 +318,7 @@ final class Tint: NSObject, NSMenuDelegate {
                         s.add(g, forKey: "glint")
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + dur) {
-                        if glow.opacity == 0 { glow.removeAnimation(forKey: "breathe") }
+                        if glow.opacity == 0 { glow.sublayers?.forEach { $0.removeAnimation(forKey: "breathe") } }
                     }
                 }
             }
