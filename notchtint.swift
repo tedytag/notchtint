@@ -80,6 +80,24 @@ func topEdgeColors(pid: pid_t) async -> (left: NSColor, right: NSColor)? {
     return edgeColors(cg)
 }
 
+// Notch outline for a notch body `r` (top edge = screen's top edge): concave "ears" where
+// it meets the screen edge, straight sides, convex bottom corners; extends 20pt above
+// the edge so window clipping hides the top. ponytail: ear/corner eyeballed to the
+// MacBook notch (not measurable via API) — tune if the rim doesn't follow the curves.
+let notchEar: CGFloat = 8, notchCorner: CGFloat = 10
+func notchPath(_ r: CGRect) -> CGPath {
+    let p = CGMutablePath()
+    p.move(to: CGPoint(x: r.minX - notchEar, y: r.maxY + 20))
+    p.addLine(to: CGPoint(x: r.minX - notchEar, y: r.maxY))
+    p.addArc(tangent1End: CGPoint(x: r.minX, y: r.maxY), tangent2End: CGPoint(x: r.minX, y: r.minY), radius: notchEar)
+    p.addArc(tangent1End: CGPoint(x: r.minX, y: r.minY), tangent2End: CGPoint(x: r.maxX, y: r.minY), radius: notchCorner)
+    p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.minY), tangent2End: CGPoint(x: r.maxX, y: r.maxY), radius: notchCorner)
+    p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.maxY), tangent2End: CGPoint(x: r.maxX + notchEar, y: r.maxY), radius: notchEar)
+    p.addLine(to: CGPoint(x: r.maxX + notchEar, y: r.maxY + 20))
+    p.closeSubpath()
+    return p
+}
+
 // MARK: - Window geometry helpers
 
 func winBounds(_ w: [String: Any]) -> [String: CGFloat] { (w[kCGWindowBounds as String] as? [String: CGFloat]) ?? [:] }
@@ -107,6 +125,7 @@ final class Tint: NSObject, NSMenuDelegate {
     var pulseStart = Date.distantPast    // when the shimmer faded in; enforces a minimum showtime
     var lastApp: NSRunningApplication?
     var settingsWindow: NSWindow?
+    var fakeNotch: NSWindow?         // recording mode only (see updateFakeNotch)
 
     var enabled: Bool {              // persisted, so a disable survives relaunch
         get { UserDefaults.standard.object(forKey: "enabled") as? Bool ?? true }
@@ -161,11 +180,8 @@ final class Tint: NSObject, NSMenuDelegate {
         w.contentView?.layer = root
         w.contentView?.wantsLayer = true
         let bounds = CGRect(x: 0, y: drop, width: rect.width, height: rect.height)   // menu-bar band
-        // notch span in strip coords; the auxiliary areas are the menu-bar zones beside it
-        notch = CGRect(x: rect.width / 2 - 100, y: drop, width: 200, height: rect.height)
-        if let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea {
-            notch = CGRect(x: l.maxX - f.minX, y: drop, width: r.minX - l.maxX, height: rect.height)
-        }
+        let span = notchSpan()
+        notch = CGRect(x: span.x, y: drop, width: span.w, height: rect.height)   // strip coords
         func horizontal(_ g: CAGradientLayer) {
             g.startPoint = CGPoint(x: 0, y: 0.5)
             g.endPoint = CGPoint(x: 1, y: 0.5)
@@ -210,22 +226,8 @@ final class Tint: NSObject, NSMenuDelegate {
         let glow = CALayer()
         glow.name = "glow"
         glow.frame = CGRect(x: 0, y: 0, width: rect.width, height: drop + rect.height)
-        // Notch outline: concave "ears" where it meets the screen's top edge, straight sides,
-        // convex bottom corners. Parts above the screen edge are clipped by the window.
-        // ponytail: eyeballed to the MacBook notch (not measurable via API) — tune by eye:
-        // widen = side glow too thin vs bottom; ear/corner = rim not following the curves
-        let widen: CGFloat = 2, ear: CGFloat = 8, corner: CGFloat = 10
-        let l = notch.minX - widen, r = notch.maxX + widen
-        let bottom = drop, top = drop + rect.height
-        let shape = CGMutablePath()
-        shape.move(to: CGPoint(x: l - ear, y: top + 20))
-        shape.addLine(to: CGPoint(x: l - ear, y: top))
-        shape.addArc(tangent1End: CGPoint(x: l, y: top), tangent2End: CGPoint(x: l, y: bottom), radius: ear)
-        shape.addArc(tangent1End: CGPoint(x: l, y: bottom), tangent2End: CGPoint(x: r, y: bottom), radius: corner)
-        shape.addArc(tangent1End: CGPoint(x: r, y: bottom), tangent2End: CGPoint(x: r, y: top), radius: corner)
-        shape.addArc(tangent1End: CGPoint(x: r, y: top), tangent2End: CGPoint(x: r + ear, y: top), radius: ear)
-        shape.addLine(to: CGPoint(x: r + ear, y: top + 20))
-        shape.closeSubpath()
+        // ponytail: widen eyeballed — raise it if the side glow looks thinner than the bottom
+        let shape = notchPath(notch.insetBy(dx: -2, dy: 0))
         for (color, radius) in [(violet, 18.0), (violet, 9.0), (lavender, 4.0)] {
             let rim = CAShapeLayer()
             rim.path = shape
@@ -242,6 +244,41 @@ final class Tint: NSObject, NSMenuDelegate {
         root.addSublayer(fill)
         root.addSublayer(glow)
         return w
+    }
+
+    // Notch x-span relative to the screen's left edge; the auxiliary areas are the
+    // menu-bar zones beside it
+    func notchSpan() -> (x: CGFloat, w: CGFloat) {
+        guard let l = screen.auxiliaryTopLeftArea, let r = screen.auxiliaryTopRightArea
+        else { return (screen.frame.width / 2 - 100, 200) }
+        return (l.maxX - screen.frame.minX, r.minX - l.maxX)
+    }
+
+    // Hidden recording mode: screen recordings don't contain the hardware notch, so
+    // demos can't show it dissolving. With `defaults write com.notchtint.app showNotch
+    // -bool true` (relaunch), a black notch is drawn on top of everything, on every Space.
+    func updateFakeNotch() {
+        fakeNotch?.orderOut(nil)
+        fakeNotch = nil
+        guard UserDefaults.standard.bool(forKey: "showNotch") else { return }
+        let f = screen.frame, span = notchSpan()
+        let h = max(f.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, 24)
+        let w = NSWindow(contentRect: NSRect(x: f.minX + span.x - notchEar, y: f.maxY - h,
+                                             width: span.w + 2 * notchEar, height: h),
+                         styleMask: .borderless, backing: .buffered, defer: false)
+        w.level = NSWindow.Level(Int(CGWindowLevelForKey(.mainMenuWindow)) + 2)   // above the strips
+        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        w.ignoresMouseEvents = true
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.hasShadow = false
+        let s = CAShapeLayer()
+        s.path = notchPath(CGRect(x: notchEar, y: 0, width: span.w, height: h))
+        s.fillColor = NSColor.black.cgColor
+        w.contentView?.layer = s
+        w.contentView?.wantsLayer = true
+        w.orderFrontRegardless()
+        fakeNotch = w
     }
 
     // Mask width: collapsed = exactly the notch (color hidden behind it);
@@ -383,6 +420,7 @@ final class Tint: NSObject, NSMenuDelegate {
         NotificationCenter.default.addObserver(
             self, selector: #selector(screensChanged),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        updateFakeNotch()
         evaluate()
     }
 
@@ -405,6 +443,7 @@ final class Tint: NSObject, NSMenuDelegate {
         // and a bare 24 (< notch 32) rejected every fullscreen window → no strip ever again (lid sleep/wake)
         menuBarH = max(screen.frame.maxY - screen.visibleFrame.maxY, screen.safeAreaInsets.top, 24)
         lastKey = ""
+        updateFakeNotch()
         evaluate()
     }
 
@@ -558,27 +597,44 @@ final class Tint: NSObject, NSMenuDelegate {
 
     // MARK: menu
 
-    func item(_ title: String, _ symbol: String, _ action: Selector?, key: String = "") -> NSMenuItem {
-        let it = NSMenuItem(title: title, action: action, keyEquivalent: key)
-        it.target = self
-        it.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        return it
+    // Every row is a hand-built view: this macOS doesn't render NSMenuItem.image at all
+    // (tested plain/configured/template/sized symbols — none show), so icon, title,
+    // shortcut hint, hover highlight and click handling are all MenuRow's job.
+    func row(_ title: String, _ symbol: String, _ action: Selector?, key: String = "",
+             target: AnyObject? = nil) -> (NSMenuItem, MenuRow) {
+        // wide enough for the title (the menu takes its widest row; the rest stretch)
+        let titleW = ceil(NSTextField(labelWithString: title).intrinsicContentSize.width)
+        let v = MenuRow(frame: NSRect(x: 0, y: 0, width: max(240, 38 + titleW + (key.isEmpty ? 74 : 70)), height: 28))
+        v.autoresizingMask = [.width]
+        v.icon.frame = NSRect(x: 14, y: 6, width: 16, height: 16)
+        v.icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        v.addSubview(v.icon)
+        v.label.stringValue = title
+        v.label.frame = NSRect(x: 38, y: 5, width: titleW, height: 18)
+        v.label.autoresizingMask = [.width]
+        v.addSubview(v.label)
+        if !key.isEmpty {                        // shortcut hint, styled like the system's
+            v.hint.stringValue = "⌘" + key.uppercased()
+            v.hint.alignment = .right
+            v.hint.frame = NSRect(x: v.frame.width - 64, y: 5, width: 50, height: 18)
+            v.hint.autoresizingMask = [.minXMargin]
+            v.addSubview(v.hint)
+        }
+        let it = NSMenuItem(title: title, action: action, keyEquivalent: key)  // key still fires while the menu is open
+        it.target = target ?? self
+        it.view = v
+        return (it, v)
+    }
+
+    func item(_ title: String, _ symbol: String, _ action: Selector?, key: String = "",
+              target: AnyObject? = nil) -> NSMenuItem {
+        row(title, symbol, action, key: key, target: target).0
     }
 
     // Menu row with a real NSSwitch (Control Center style). Clicking it doesn't close
     // the menu, so both toggles can be flipped in one visit.
     func switchItem(_ title: String, _ symbol: String, isOn: Bool, _ action: Selector) -> NSMenuItem {
-        let v = NSView(frame: NSRect(x: 0, y: 0, width: 240, height: 30))
-        v.autoresizingMask = [.width]
-
-        let icon = NSImageView(frame: NSRect(x: 14, y: 7, width: 16, height: 16))
-        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
-        icon.contentTintColor = .labelColor
-        v.addSubview(icon)
-
-        let label = NSTextField(labelWithString: title)
-        label.frame = NSRect(x: 38, y: 6, width: 140, height: 18)
-        v.addSubview(label)
+        let (it, v) = row(title, symbol, nil)    // no action: the switch handles clicks, the row never highlights
 
         let sw = NSSwitch()
         sw.controlSize = .mini
@@ -590,9 +646,6 @@ final class Tint: NSObject, NSMenuDelegate {
                                   y: (v.frame.height - sw.frame.height) / 2))
         sw.autoresizingMask = [.minXMargin]
         v.addSubview(sw)
-
-        let it = NSMenuItem()
-        it.view = v
         return it
     }
 
@@ -600,6 +653,7 @@ final class Tint: NSObject, NSMenuDelegate {
         menu.removeAllItems()
 
         menu.addItem(switchItem("Enabled", "power", isOn: enabled, #selector(toggleEnabled)))
+        menu.addItem(.separator())
 
         if let app = lastApp, let bid = app.bundleIdentifier {
             let name = app.localizedName ?? bid
@@ -623,14 +677,12 @@ final class Tint: NSObject, NSMenuDelegate {
         menu.addItem(item("Refresh Color", "arrow.clockwise", #selector(refreshColor), key: "r"))
 
         menu.addItem(.separator())
-        menu.addItem(item("Settings…", "gearshape", #selector(openSettings), key: ","))
+        menu.addItem(item("Settings", "gearshape", #selector(openSettings), key: ","))
         menu.addItem(switchItem("Start at Login", "bolt", isOn: loginEnabled, #selector(toggleLogin)))
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit NotchTint",
-                              action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        quit.image = NSImage(systemSymbolName: "xmark.circle", accessibilityDescription: nil)
-        menu.addItem(quit)
+        menu.addItem(item("Quit NotchTint", "xmark.circle", #selector(NSApplication.terminate(_:)),
+                          key: "q", target: NSApp))
     }
 
     // NSColorSampler is the system eyedropper: needs no Screen Recording permission,
@@ -729,6 +781,34 @@ final class Tint: NSObject, NSMenuDelegate {
             (plist as NSDictionary).write(toFile: agentPlistPath, atomically: true)
             run("/bin/launchctl", ["bootstrap", "gui/\(getuid())", agentPlistPath])
         }
+    }
+}
+
+// MARK: - Menu row
+
+// A menu row drawn by hand (see Tint.row): rounded accent highlight on hover, white
+// text/icon while highlighted, click = close the menu and fire the item's action.
+final class MenuRow: NSView {
+    let icon = NSImageView()
+    let label = NSTextField(labelWithString: "")
+    let hint = NSTextField(labelWithString: "")
+
+    var lit: Bool { enclosingMenuItem.map { $0.isHighlighted && $0.action != nil } ?? false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        icon.contentTintColor = lit ? .white : .labelColor
+        label.textColor = lit ? .white : .labelColor
+        hint.textColor = lit ? .white : .secondaryLabelColor
+        guard lit else { return }
+        NSColor.selectedContentBackgroundColor.setFill()
+        NSBezierPath(roundedRect: bounds.insetBy(dx: 5, dy: 1), xRadius: 6, yRadius: 6).fill()
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard let item = enclosingMenuItem, let action = item.action else { return }
+        item.menu?.cancelTracking()
+        // after tracking ends — actions that open alerts/samplers must not run inside it
+        DispatchQueue.main.async { NSApp.sendAction(action, to: item.target, from: item) }
     }
 }
 
