@@ -6,8 +6,6 @@ Makes the MacBook notch dissolve into your app. When the frontmost window is
 fullscreen, NotchTint paints the empty menu-bar area around the notch with the
 exact colors of the app's top edge — no more black void framing the camera.
 
-<!-- demo: record a Space swipe between two fullscreen apps (Cmd+Shift+5 or Kap),
-     save as demo.gif and it shows up here -->
 ![demo](demo.gif)
 
 - **Exact colors** — samples the real pixels of the window's top edge; the left
