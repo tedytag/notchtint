@@ -1,5 +1,3 @@
-<img width="128" height="128" alt="icon" src="https://github.com/user-attachments/assets/59340729-e5dd-4516-b5e2-145ab2dfc825" />
-
 # NotchTint
 
 Makes the MacBook notch dissolve into your app. When the frontmost window is
