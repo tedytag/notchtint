@@ -1,5 +1,7 @@
 # NotchTint
 
+**English** | [Русский](README.ru.md)
+
 Makes the MacBook notch dissolve into your app. When the frontmost window is
 fullscreen, NotchTint paints the empty menu-bar area around the notch with the
 exact colors of the app's top edge — no more black void framing the camera.
